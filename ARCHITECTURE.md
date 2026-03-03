@@ -77,6 +77,47 @@ A single trading cycle follows this path:
 7. LOOP       Flow Engine carries state forward → back to step 1
 ```
 
+## Scheduling and Budget Policy
+
+### Independent Crew Schedules
+
+Cost contention mode uses independent intervals per crew:
+
+- Market crew runs on `MARKET_CREW_INTERVAL_SECONDS`
+- Strategy crew runs on `STRATEGY_CREW_INTERVAL_SECONDS`
+- Execution crew runs on `EXECUTION_CREW_INTERVAL_SECONDS`
+
+These schedules are intentionally decoupled. Strategy is **not** hard-gated by
+Market cadence in the scheduler, which allows different tuning profiles without
+implicit coupling.
+
+### Daily Token Budget Degrade State Machine
+
+At runtime, budget policy follows a small state machine:
+
+```
+NORMAL -> STRATEGY_OFF -> HARD_STOP
+```
+
+- `NORMAL`: all crews may run when due.
+- `STRATEGY_OFF`: Strategy crew disabled for the rest of UTC day.
+- `HARD_STOP`: all LLM crews disabled for the rest of UTC day.
+
+The maximum stage is controlled by `TOKEN_BUDGET_DEGRADE_MODE`:
+
+- `off`: never degrade
+- `strategy_only`: cap at `STRATEGY_OFF`
+- `hard_stop`: allow full progression to `HARD_STOP`
+
+On UTC day rollover, counters and degrade state reset to `NORMAL`.
+
+### Hard-Stop Monitoring Fallback
+
+In `HARD_STOP`, when `NON_LLM_MONITOR_ON_HARD_STOP=true`, a lightweight non-LLM
+probe checks open order statuses via exchange APIs and writes normalized terminal
+states back to the database. This preserves basic operational awareness while
+token spend is constrained.
+
 ## Key Abstractions
 
 ### BaseStrategy (strategies/base.py)
