@@ -1,0 +1,63 @@
+name: Strategy Proposal
+description: Propose a new trading strategy for the community
+labels: ["strategy", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Proposing a new trading strategy? Great! Help us evaluate it by filling
+        out the sections below.
+
+  - type: input
+    id: name
+    attributes:
+      label: Strategy Name
+      placeholder: "e.g., RSI Divergence, VWAP Mean Reversion"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Strategy Description
+      description: Explain the trading logic in plain language.
+    validations:
+      required: true
+
+  - type: textarea
+    id: indicators
+    attributes:
+      label: Indicators Used
+      description: List the technical indicators or data sources required.
+      placeholder: |
+        - RSI (14 period)
+        - EMA (12, 26)
+        - Volume
+    validations:
+      required: true
+
+  - type: textarea
+    id: entry-exit
+    attributes:
+      label: Entry / Exit Rules
+      description: Describe the buy and sell conditions.
+      placeholder: |
+        Buy when: ...
+        Sell when: ...
+        Stop-loss: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: backtest
+    attributes:
+      label: Backtest Results (if available)
+      description: |
+        If you've backtested this strategy, share the results.
+        Include timeframe, pairs tested, and key metrics.
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Links to papers, articles, or other implementations.

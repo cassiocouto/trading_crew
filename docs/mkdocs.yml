@@ -1,0 +1,38 @@
+site_name: Trading Crew
+site_description: Multi-agent crypto trading system powered by CrewAI
+site_url: https://your-org.github.io/trading-crew
+
+repo_url: https://github.com/your-org/trading-crew
+repo_name: trading-crew
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue grey
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - Writing a Strategy: writing-a-strategy.md
+  - Deployment: deployment.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
