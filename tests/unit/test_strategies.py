@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from trading_crew.models.market import MarketAnalysis
 from trading_crew.models.signal import SignalType
-from trading_crew.strategies.ema_crossover import EMACrossoverStrategy
 from trading_crew.strategies.bollinger import BollingerBandsStrategy
+from trading_crew.strategies.ema_crossover import EMACrossoverStrategy
 from trading_crew.strategies.rsi_range import RSIRangeStrategy
 
 
@@ -29,7 +29,7 @@ def _make_analysis(**indicator_overrides: float) -> MarketAnalysis:
     return MarketAnalysis(
         symbol="BTC/USDT",
         exchange="binance",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         current_price=indicators.get("current_price", 60500.0),
         indicators={k: v for k, v in indicators.items() if k != "current_price"},
     )
@@ -65,7 +65,7 @@ class TestEMACrossover:
         analysis = MarketAnalysis(
             symbol="BTC/USDT",
             exchange="binance",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             current_price=60000.0,
             indicators={},
         )

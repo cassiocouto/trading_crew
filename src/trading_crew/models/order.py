@@ -6,27 +6,27 @@ request through placement, partial fills, and final completion or cancellation.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
-class OrderSide(str, Enum):
+class OrderSide(StrEnum):
     """Direction of an order."""
 
     BUY = "buy"
     SELL = "sell"
 
 
-class OrderType(str, Enum):
+class OrderType(StrEnum):
     """Execution type of an order."""
 
     MARKET = "market"
     LIMIT = "limit"
 
 
-class OrderStatus(str, Enum):
+class OrderStatus(StrEnum):
     """Lifecycle state of an order.
 
     State transitions:
@@ -84,6 +84,14 @@ class OrderRequest(BaseModel, frozen=True):
     strategy_name: str = ""
     signal_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    @model_validator(mode="after")
+    def _validate_limit_has_price(self) -> OrderRequest:
+        if self.order_type == OrderType.LIMIT and self.price is None:
+            raise ValueError("Limit orders require an explicit price")
+        if self.price is not None and self.price <= 0:
+            raise ValueError("Order price must be positive")
+        return self
+
 
 class OrderFill(BaseModel, frozen=True):
     """A single fill (partial or complete) on an order.
@@ -100,7 +108,7 @@ class OrderFill(BaseModel, frozen=True):
     amount: float = Field(gt=0)
     fee: float = Field(ge=0, default=0.0)
     fee_currency: str = ""
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class Order(BaseModel):
@@ -127,8 +135,8 @@ class Order(BaseModel):
     filled_amount: float = Field(default=0.0, ge=0)
     average_fill_price: float | None = None
     fills: list[OrderFill] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     exchange_data: dict[str, object] = Field(default_factory=dict)
 
     @property
@@ -155,7 +163,7 @@ class Order(BaseModel):
         total_cost = sum(f.price * f.amount for f in self.fills)
         total_amount = sum(f.amount for f in self.fills)
         self.average_fill_price = total_cost / total_amount if total_amount > 0 else None
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
         if self.filled_amount >= self.request.amount:
             self.status = OrderStatus.FILLED

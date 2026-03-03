@@ -7,9 +7,11 @@ such as maximum exposure and single-asset concentration limits.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from trading_crew.models.portfolio import Portfolio
-from trading_crew.models.risk import RiskParams
+if TYPE_CHECKING:
+    from trading_crew.models.portfolio import Portfolio
+    from trading_crew.models.risk import RiskParams
 
 logger = logging.getLogger(__name__)
 

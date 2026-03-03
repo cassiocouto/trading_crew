@@ -12,24 +12,28 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from trading_crew.db.models import (
     OHLCVRecord,
     OrderRecord,
     PnLSnapshotRecord,
-    PositionRecord,
     TickerRecord,
     TradeSignalRecord,
 )
 from trading_crew.db.session import get_engine, get_session
 from trading_crew.models.market import OHLCV, Ticker
-from trading_crew.models.order import Order, OrderStatus
 from trading_crew.models.portfolio import PnLSnapshot
-from trading_crew.models.signal import TradeSignal
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.orm import Session
+
+    from trading_crew.models.order import Order
+    from trading_crew.models.signal import TradeSignal
 
 logger = logging.getLogger(__name__)
 
@@ -62,27 +66,47 @@ class DatabaseService:
         logger.debug("Saved ticker: %s %s @ %.2f", ticker.exchange, ticker.symbol, ticker.last)
 
     def save_ohlcv_batch(self, candles: list[OHLCV]) -> int:
-        """Persist a batch of OHLCV candles. Returns count saved."""
+        """Persist a batch of OHLCV candles with upsert semantics.
+
+        Existing candles (matched by symbol+exchange+timeframe+timestamp) are
+        updated with fresh values. New candles are inserted. This prevents
+        duplicate accumulation on repeated fetches.
+
+        Returns:
+            Number of candles processed.
+        """
         if not candles:
             return 0
         with get_session(self._engine) as session:
-            records = [
-                OHLCVRecord(
+            count = 0
+            for c in candles:
+                existing = session.query(OHLCVRecord).filter_by(
                     symbol=c.symbol,
                     exchange=c.exchange,
                     timeframe=c.timeframe,
                     timestamp=c.timestamp,
-                    open=c.open,
-                    high=c.high,
-                    low=c.low,
-                    close=c.close,
-                    volume=c.volume,
-                )
-                for c in candles
-            ]
-            session.add_all(records)
-        logger.debug("Saved %d OHLCV candles", len(records))
-        return len(records)
+                ).first()
+                if existing:
+                    existing.open = c.open
+                    existing.high = c.high
+                    existing.low = c.low
+                    existing.close = c.close
+                    existing.volume = c.volume
+                else:
+                    session.add(OHLCVRecord(
+                        symbol=c.symbol,
+                        exchange=c.exchange,
+                        timeframe=c.timeframe,
+                        timestamp=c.timestamp,
+                        open=c.open,
+                        high=c.high,
+                        low=c.low,
+                        close=c.close,
+                        volume=c.volume,
+                    ))
+                count += 1
+        logger.debug("Upserted %d OHLCV candles", count)
+        return count
 
     def get_recent_ohlcv(
         self, symbol: str, exchange: str, timeframe: str, limit: int = 100

@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import ccxt
 
@@ -155,7 +155,7 @@ class ExchangeService:
             last=float(raw.get("last") or 0),
             volume_24h=float(raw.get("baseVolume") or 0),
             timestamp=datetime.fromtimestamp(
-                (raw.get("timestamp") or 0) / 1000, tz=timezone.utc
+                (raw.get("timestamp") or 0) / 1000, tz=UTC
             ),
         )
 
@@ -180,7 +180,7 @@ class ExchangeService:
                 symbol=symbol,
                 exchange=self._exchange_id,
                 timeframe=timeframe,
-                timestamp=datetime.fromtimestamp(candle[0] / 1000, tz=timezone.utc),
+                timestamp=datetime.fromtimestamp(candle[0] / 1000, tz=UTC),
                 open=float(candle[1]),
                 high=float(candle[2]),
                 low=float(candle[3]),
@@ -260,8 +260,8 @@ class ExchangeService:
             status=status_map.get(raw.get("status", "open"), OrderStatus.OPEN),
             filled_amount=float(raw.get("filled") or 0),
             average_fill_price=float(raw["average"]) if raw.get("average") else None,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             exchange_data=raw,
         )
 
@@ -296,24 +296,42 @@ class ExchangeService:
 
     # -- Paper Trading --------------------------------------------------------
 
+    #: Default slippage applied to paper market orders (basis points).
+    #: 10 bps = 0.1%. Buy orders slip up, sell orders slip down.
+    DEFAULT_SLIPPAGE_BPS: float = 10.0
+
+    #: Default taker fee for paper fills (0.1%).
+    DEFAULT_PAPER_FEE_RATE: float = 0.001
+
     def _simulate_order(self, request: OrderRequest) -> Order:
         """Simulate an order fill for paper-trading mode.
 
-        In paper mode, limit orders fill at the requested price and market
-        orders fill at a simulated price. This provides a realistic but
-        safe testing experience.
+        For limit orders, fills at the requested price. For market orders,
+        fetches the current ticker to get a realistic execution price and
+        applies a slippage model to avoid optimistic fills.
+
+        Raises:
+            ValueError: If the fill price cannot be determined (market order
+                with no ticker data and no explicit price).
         """
         simulated_id = f"paper-{uuid.uuid4().hex[:12]}"
-        fill_price = request.price or 0.0
 
-        simulated_fee = fill_price * request.amount * 0.001
+        if request.order_type == OrderType.LIMIT:
+            if request.price is None:
+                raise ValueError("Limit order requires a price")
+            fill_price = request.price
+        else:
+            fill_price = self._get_market_fill_price(request.symbol, request.side)
+
+        simulated_fee = fill_price * request.amount * self.DEFAULT_PAPER_FEE_RATE
+        fee_currency = request.symbol.split("/")[1] if "/" in request.symbol else "USDT"
 
         fill = OrderFill(
             price=fill_price,
             amount=request.amount,
             fee=simulated_fee,
-            fee_currency="USDT",
-            timestamp=datetime.now(timezone.utc),
+            fee_currency=fee_currency,
+            timestamp=datetime.now(UTC),
         )
 
         order = Order(
@@ -323,21 +341,50 @@ class ExchangeService:
             filled_amount=request.amount,
             average_fill_price=fill_price,
             fills=[fill],
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-            exchange_data={"simulated": True},
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            exchange_data={"simulated": True, "slippage_bps": self.DEFAULT_SLIPPAGE_BPS},
         )
 
         logger.info(
-            "[PAPER] %s %s %.6f %s @ %.2f (fee: %.4f)",
+            "[PAPER] %s %s %.6f %s @ %.2f (fee: %.4f %s)",
             request.side.value.upper(),
             request.order_type.value,
             request.amount,
             request.symbol,
             fill_price,
             simulated_fee,
+            fee_currency,
         )
         return order
+
+    def _get_market_fill_price(self, symbol: str, side: OrderSide) -> float:
+        """Determine a realistic fill price for a paper market order.
+
+        Fetches the live ticker and applies slippage: buys fill at the ask
+        plus slippage, sells fill at the bid minus slippage.
+
+        Raises:
+            ValueError: If the ticker returns no usable price data (all zeros).
+        """
+        ticker = self.fetch_ticker(symbol)
+        slippage_mult = self.DEFAULT_SLIPPAGE_BPS / 10_000
+
+        if side == OrderSide.BUY:
+            base_price = ticker.ask if ticker.ask > 0 else ticker.last
+        else:
+            base_price = ticker.bid if ticker.bid > 0 else ticker.last
+
+        if base_price <= 0:
+            raise ValueError(
+                f"Cannot determine fill price for {symbol}: ticker returned "
+                f"bid={ticker.bid}, ask={ticker.ask}, last={ticker.last}. "
+                f"The exchange may be unreachable or the pair may be invalid."
+            )
+
+        if side == OrderSide.BUY:
+            return base_price * (1 + slippage_mult)
+        return base_price * (1 - slippage_mult)
 
     # -- Retry Logic ----------------------------------------------------------
 

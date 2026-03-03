@@ -8,10 +8,12 @@ catastrophic losses during extreme market conditions.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from trading_crew.models.portfolio import Portfolio
-from trading_crew.models.risk import RiskParams
+if TYPE_CHECKING:
+    from trading_crew.models.portfolio import Portfolio
+    from trading_crew.models.risk import RiskParams
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,7 @@ class CircuitBreaker:
 
         if drawdown >= self._max_drawdown_pct:
             self.is_tripped = True
-            self.tripped_at = datetime.now(timezone.utc)
+            self.tripped_at = datetime.now(UTC)
             self.trip_reason = (
                 f"Drawdown {drawdown:.2f}% exceeded limit of {self._max_drawdown_pct:.1f}%"
             )

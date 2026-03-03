@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from trading_crew.models.portfolio import Portfolio, Position
+from trading_crew.models.portfolio import Portfolio
 from trading_crew.models.risk import RiskParams
+from trading_crew.risk.circuit_breaker import CircuitBreaker
+from trading_crew.risk.portfolio_limits import check_concentration_limit, check_exposure_limit
 from trading_crew.risk.position_sizer import calculate_position_size
 from trading_crew.risk.stop_loss import atr_based_stop, fixed_percentage_stop
-from trading_crew.risk.portfolio_limits import check_concentration_limit, check_exposure_limit
-from trading_crew.risk.circuit_breaker import CircuitBreaker
 
 
 @pytest.mark.unit

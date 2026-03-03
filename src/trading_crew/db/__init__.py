@@ -8,6 +8,6 @@ Usage:
 """
 
 from trading_crew.db.models import Base
-from trading_crew.db.session import get_engine, get_session
+from trading_crew.db.session import get_engine, get_session, reset_engines
 
-__all__ = ["Base", "get_engine", "get_session"]
+__all__ = ["Base", "get_engine", "get_session", "reset_engines"]

@@ -89,11 +89,15 @@ specialized **Agents**:
 | **Strategy** | Strategist, Risk Manager | Generate trade signals, validate against risk limits |
 | **Execution** | Executor, Monitor | Place orders, track fills, manage order lifecycle |
 
-A **CrewAI Flow** orchestrates the crews in a continuous loop:
+A **CrewAI Flow** will orchestrate the crews in a continuous loop:
 
 ```
 Fetch → Analyze → Signal → Risk Check → Execute → Monitor → Loop
 ```
+
+> **Phase 1 status**: The crew structure, agents, tools, models, and risk
+> pipeline are implemented. Inter-crew data flows through a typed `CycleState`
+> DTO. Full deterministic handoff via CrewAI Flows is planned for Phase 5.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
 

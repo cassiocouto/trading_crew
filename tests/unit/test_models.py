@@ -6,12 +6,12 @@ and serialization.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from trading_crew.models.market import OHLCV, MarketAnalysis, Ticker
-from trading_crew.models.signal import SignalStrength, SignalType, TradeSignal
 from trading_crew.models.order import (
     Order,
     OrderFill,
@@ -20,8 +20,9 @@ from trading_crew.models.order import (
     OrderStatus,
     OrderType,
 )
-from trading_crew.models.portfolio import PnLSnapshot, Portfolio, Position
+from trading_crew.models.portfolio import Portfolio, Position
 from trading_crew.models.risk import RiskCheckResult, RiskParams, RiskVerdict
+from trading_crew.models.signal import SignalStrength, SignalType, TradeSignal
 
 
 @pytest.mark.unit
@@ -34,7 +35,7 @@ class TestTicker:
             ask=60010.0,
             last=60005.0,
             volume_24h=1234.5,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         assert ticker.symbol == "BTC/USDT"
         assert ticker.spread == 10.0
@@ -47,7 +48,7 @@ class TestTicker:
             ask=101.0,
             last=100.5,
             volume_24h=0,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         assert abs(ticker.spread_pct - 0.995) < 0.01
 
@@ -59,9 +60,9 @@ class TestTicker:
             ask=101.0,
             last=100.5,
             volume_24h=0,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
-        with pytest.raises(Exception):
+        with pytest.raises((TypeError, ValidationError)):
             ticker.last = 200.0  # type: ignore[misc]
 
 
@@ -72,7 +73,7 @@ class TestOHLCV:
             symbol="ETH/USDT",
             exchange="binance",
             timeframe="1h",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             open=3000.0,
             high=3100.0,
             low=2900.0,
@@ -82,12 +83,12 @@ class TestOHLCV:
         assert candle.close == 3050.0
 
     def test_volume_must_be_non_negative(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             OHLCV(
                 symbol="ETH/USDT",
                 exchange="binance",
                 timeframe="1h",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 open=3000.0,
                 high=3100.0,
                 low=2900.0,
@@ -102,7 +103,7 @@ class TestMarketAnalysis:
         analysis = MarketAnalysis(
             symbol="BTC/USDT",
             exchange="binance",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             current_price=60000.0,
             indicators={"ema_fast": 59500.0, "rsi_14": 65.0},
         )
@@ -137,7 +138,7 @@ class TestTradeSignal:
         assert signal.is_actionable is False
 
     def test_confidence_bounds(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             TradeSignal(
                 symbol="BTC/USDT",
                 exchange="binance",

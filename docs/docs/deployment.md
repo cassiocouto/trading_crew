@@ -41,10 +41,10 @@ The default `sqlite:///trading_crew.db` works for local development.
 
 ### PostgreSQL (Production)
 
-For production, use PostgreSQL:
+For production, use PostgreSQL with the sync psycopg2 driver:
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/trading_crew
+DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/trading_crew
 ```
 
 Run migrations:

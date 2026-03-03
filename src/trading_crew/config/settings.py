@@ -10,7 +10,7 @@ checked-in files.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,7 +22,7 @@ from trading_crew.models.risk import RiskParams
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
-class TradingMode(str, Enum):
+class TradingMode(StrEnum):
     """Operating mode for the trading system."""
 
     PAPER = "paper"

@@ -6,7 +6,7 @@ Allows agents to store and retrieve trading data from the database.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from crewai.tools import BaseTool
 from pydantic import Field
@@ -35,7 +35,7 @@ class SaveTickerTool(BaseTool):
             ask=float(params["ask"]),
             last=float(params["last"]),
             volume_24h=float(params.get("volume_24h", 0)),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         self.db_service.save_ticker(ticker)
         return f"Saved ticker: {ticker.symbol} @ {ticker.last}"

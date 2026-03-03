@@ -86,6 +86,13 @@ select = [
 ]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Pydantic models, SQLAlchemy ORM models, and CrewAI tools need runtime type
+# resolution — their field-type imports must NOT be moved to TYPE_CHECKING.
+"src/trading_crew/models/*.py" = ["TC001", "TC003"]
+"src/trading_crew/db/models.py" = ["TC003"]
+"src/trading_crew/tools/*.py" = ["TC001"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["trading_crew"]
 

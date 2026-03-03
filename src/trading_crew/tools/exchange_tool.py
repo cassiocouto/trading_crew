@@ -86,25 +86,42 @@ class PlaceOrderTool(BaseTool):
     description: str = (
         "Place an order on the exchange. Input: JSON with 'symbol', 'side' "
         "(buy/sell), 'order_type' (market/limit), 'amount', and optional "
-        "'price' (required for limit orders)."
+        "'price' (required for limit orders). Returns order details or an "
+        "error message."
     )
     exchange_service: ExchangeService = Field(exclude=True)
+
+    _REQUIRED_KEYS = ("symbol", "side", "order_type", "amount")
 
     def _run(self, input_str: str) -> str:
         from trading_crew.models.order import OrderRequest, OrderSide, OrderType
 
-        params = json.loads(input_str)
+        try:
+            params = json.loads(input_str)
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"Invalid JSON input: {e}"})
 
-        request = OrderRequest(
-            symbol=params["symbol"],
-            exchange=self.exchange_service.exchange_id,
-            side=OrderSide(params["side"]),
-            order_type=OrderType(params["order_type"]),
-            amount=float(params["amount"]),
-            price=float(params["price"]) if params.get("price") else None,
-        )
+        missing = [k for k in self._REQUIRED_KEYS if k not in params]
+        if missing:
+            return json.dumps({"error": f"Missing required keys: {', '.join(missing)}"})
 
-        order = self.exchange_service.create_order(request)
+        try:
+            request = OrderRequest(
+                symbol=params["symbol"],
+                exchange=self.exchange_service.exchange_id,
+                side=OrderSide(params["side"]),
+                order_type=OrderType(params["order_type"]),
+                amount=float(params["amount"]),
+                price=float(params["price"]) if params.get("price") else None,
+            )
+        except (ValueError, KeyError) as e:
+            return json.dumps({"error": f"Invalid order parameters: {e}"})
+
+        try:
+            order = self.exchange_service.create_order(request)
+        except Exception as e:
+            return json.dumps({"error": f"Order execution failed: {e}"})
+
         return json.dumps(
             {
                 "order_id": order.id,

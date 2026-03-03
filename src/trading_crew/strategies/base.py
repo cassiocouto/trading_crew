@@ -26,9 +26,11 @@ Example:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-from trading_crew.models.market import MarketAnalysis
-from trading_crew.models.signal import TradeSignal
+if TYPE_CHECKING:
+    from trading_crew.models.market import MarketAnalysis
+    from trading_crew.models.signal import TradeSignal
 
 
 class BaseStrategy(ABC):

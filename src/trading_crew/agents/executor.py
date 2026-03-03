@@ -6,12 +6,16 @@ Handles precision formatting, minimum order sizes, and error recovery.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from crewai import Agent
 
 from trading_crew.tools.exchange_tool import PlaceOrderTool
 from trading_crew.tools.notification_tool import SendNotificationTool
-from trading_crew.services.exchange_service import ExchangeService
-from trading_crew.services.notification_service import NotificationService
+
+if TYPE_CHECKING:
+    from trading_crew.services.exchange_service import ExchangeService
+    from trading_crew.services.notification_service import NotificationService
 
 
 def create_executor_agent(

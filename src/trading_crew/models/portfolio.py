@@ -6,7 +6,7 @@ profit-and-loss across the entire portfolio.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +36,7 @@ class Position(BaseModel):
     current_price: float = Field(gt=0)
     stop_loss_price: float | None = None
     take_profit_price: float | None = None
-    opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    opened_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     strategy_name: str = ""
     order_ids: list[str] = Field(default_factory=list)
 
@@ -150,7 +150,7 @@ class Portfolio(BaseModel):
     def snapshot(self) -> PnLSnapshot:
         """Create a point-in-time P&L snapshot."""
         return PnLSnapshot(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             total_balance_quote=self.total_balance,
             unrealized_pnl=self.total_unrealized_pnl,
             realized_pnl=self.realized_pnl,

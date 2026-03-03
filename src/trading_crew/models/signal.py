@@ -7,13 +7,13 @@ before becoming an order.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class SignalType(str, Enum):
+class SignalType(StrEnum):
     """Direction of a trade signal."""
 
     BUY = "buy"
@@ -21,7 +21,7 @@ class SignalType(str, Enum):
     HOLD = "hold"
 
 
-class SignalStrength(str, Enum):
+class SignalStrength(StrEnum):
     """Qualitative confidence level of a signal.
 
     Used alongside the numeric confidence score for human-readable logging.
@@ -62,7 +62,7 @@ class TradeSignal(BaseModel, frozen=True):
     stop_loss_price: float | None = None
     take_profit_price: float | None = None
     reason: str = ""
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, float | str] = Field(default_factory=dict)
 
     @property

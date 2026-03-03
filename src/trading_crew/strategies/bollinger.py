@@ -12,9 +12,13 @@ Indicators required in MarketAnalysis:
 
 from __future__ import annotations
 
-from trading_crew.models.market import MarketAnalysis
+from typing import TYPE_CHECKING
+
 from trading_crew.models.signal import SignalStrength, SignalType, TradeSignal
 from trading_crew.strategies.base import BaseStrategy
+
+if TYPE_CHECKING:
+    from trading_crew.models.market import MarketAnalysis
 
 
 class BollingerBandsStrategy(BaseStrategy):

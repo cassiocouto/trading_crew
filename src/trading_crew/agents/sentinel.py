@@ -9,12 +9,16 @@ Replaces: novadax_ws_observer.py and novadax_api_service.py from silvia_v2.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from crewai import Agent
 
-from trading_crew.tools.exchange_tool import FetchOHLCVTool, FetchTickerTool
 from trading_crew.tools.database_tool import SaveTickerTool
-from trading_crew.services.exchange_service import ExchangeService
-from trading_crew.services.database_service import DatabaseService
+from trading_crew.tools.exchange_tool import FetchOHLCVTool, FetchTickerTool
+
+if TYPE_CHECKING:
+    from trading_crew.services.database_service import DatabaseService
+    from trading_crew.services.exchange_service import ExchangeService
 
 
 def create_sentinel_agent(

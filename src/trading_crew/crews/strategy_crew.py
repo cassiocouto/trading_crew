@@ -14,9 +14,12 @@ Tasks (sequential):
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from crewai import Agent, Crew, Task
 
-from trading_crew.models.risk import RiskParams
+if TYPE_CHECKING:
+    from trading_crew.models.risk import RiskParams
 
 
 class StrategyCrew:

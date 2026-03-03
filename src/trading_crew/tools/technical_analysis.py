@@ -7,11 +7,11 @@ be enhanced with pandas-ta for the full indicator library.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from crewai.tools import BaseTool
 
-from trading_crew.models.market import OHLCV, MarketAnalysis
+from trading_crew.models.market import MarketAnalysis
 
 
 class AnalyzeMarketTool(BaseTool):
@@ -54,7 +54,7 @@ class AnalyzeMarketTool(BaseTool):
         analysis = MarketAnalysis(
             symbol=symbol,
             exchange=exchange,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             current_price=closes[-1],
             indicators=indicators,
         )

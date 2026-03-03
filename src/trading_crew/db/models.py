@@ -13,12 +13,15 @@ from datetime import datetime
 
 from sqlalchemy import (
     DateTime,
-    Enum as SAEnum,
     Float,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
+)
+from sqlalchemy import (
+    Enum as SAEnum,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -52,11 +55,17 @@ class TickerRecord(Base):
 class OHLCVRecord(Base):
     """Persisted OHLCV candle.
 
-    Indexed by (symbol, exchange, timeframe, timestamp) for efficient
-    time-series queries and backtesting.
+    Has a unique constraint on (symbol, exchange, timeframe, timestamp) to
+    prevent duplicate candles from accumulating on repeated fetches.
     """
 
     __tablename__ = "ohlcv"
+    __table_args__ = (
+        UniqueConstraint(
+            "symbol", "exchange", "timeframe", "timestamp",
+            name="uq_ohlcv_candle",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)

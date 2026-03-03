@@ -1,17 +1,20 @@
 """Trading Crew — main entry point.
 
-Initializes all services, builds the three crews, and runs the trading loop.
-In Phase 1 this is a simple sequential loop; in Phase 5 it will be upgraded
-to a CrewAI Flow with event-driven orchestration.
+Initializes all services and runs the trading loop.
+
+SCAFFOLD STATUS (Phase 1):
+  The CrewAI crews are structurally defined but the inter-crew data flow
+  currently relies on LLM-mediated text output. A typed CycleState DTO
+  is defined for deterministic handoff (see models/cycle.py) and will be
+  wired into a CrewAI Flow in Phase 5. Until then, crews run sequentially
+  and the CycleState is populated from crew outputs on a best-effort basis.
+
+  To run actual trades, the Phase 2-4 implementations must be completed
+  (agent tools, strategy integration, deterministic risk pipeline).
 
 Usage:
-    # Via the installed script
-    trading-crew
-
-    # Via Python directly
+    trading-crew              # via installed script
     python -m trading_crew.main
-
-    # Via Makefile
     make paper-trade
 """
 
@@ -24,22 +27,23 @@ import time
 
 import yaml
 
-from trading_crew.config.settings import get_settings, TradingMode
-from trading_crew.db.session import get_engine, init_db
-from trading_crew.services.exchange_service import ExchangeService
-from trading_crew.services.database_service import DatabaseService
-from trading_crew.services.notification_service import NotificationService
-from trading_crew.agents.sentinel import create_sentinel_agent
 from trading_crew.agents.analyst import create_analyst_agent
-from trading_crew.agents.sentiment import create_sentiment_agent
-from trading_crew.agents.strategist import create_strategist_agent
-from trading_crew.agents.risk_manager import create_risk_manager_agent
 from trading_crew.agents.executor import create_executor_agent
 from trading_crew.agents.monitor import create_monitor_agent
+from trading_crew.agents.risk_manager import create_risk_manager_agent
+from trading_crew.agents.sentiment import create_sentiment_agent
+from trading_crew.agents.sentinel import create_sentinel_agent
+from trading_crew.agents.strategist import create_strategist_agent
+from trading_crew.config.settings import get_settings
+from trading_crew.crews.execution_crew import ExecutionCrew
 from trading_crew.crews.market_crew import MarketCrew
 from trading_crew.crews.strategy_crew import StrategyCrew
-from trading_crew.crews.execution_crew import ExecutionCrew
+from trading_crew.db.session import get_engine, init_db
+from trading_crew.models.cycle import CycleState
 from trading_crew.risk.circuit_breaker import CircuitBreaker
+from trading_crew.services.database_service import DatabaseService
+from trading_crew.services.exchange_service import ExchangeService
+from trading_crew.services.notification_service import NotificationService
 
 logger = logging.getLogger("trading_crew")
 
@@ -73,12 +77,12 @@ def _load_yaml(path: str) -> dict[str, dict[str, str]]:
 
 
 def main() -> None:
-    """Main entry point — initialize services and run the trading loop."""
+    """Main entry point — initialize services and run the scaffold trading loop."""
     settings = get_settings()
     _setup_logging(settings.log_level)
 
     logger.info("=" * 60)
-    logger.info("Trading Crew v0.1.0 starting")
+    logger.info("Trading Crew v0.1.0 starting (Phase 1 scaffold)")
     logger.info("Mode: %s", settings.trading_mode.value)
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))
@@ -160,11 +164,16 @@ def main() -> None:
     )
 
     # -- Trading loop ---------------------------------------------------------
+    # NOTE: In Phase 1, crews exchange data via LLM text output. CycleState
+    # is instantiated per cycle for logging structure, but its fields are NOT
+    # populated from crew outputs yet. Phase 5 will parse crew results into
+    # CycleState fields and wire them via a CrewAI Flow.
     logger.info("Entering trading loop (Ctrl+C to stop)...")
     cycle = 0
 
     while not _shutdown_requested:
         cycle += 1
+        state = CycleState(cycle_number=cycle, symbols=settings.symbols)
         logger.info("--- Cycle %d ---", cycle)
 
         try:
@@ -174,24 +183,29 @@ def main() -> None:
                 time.sleep(settings.loop_interval_seconds)
                 continue
 
+            # Phase 1: Crews run sequentially. Each crew's LLM output is logged.
+            # The typed CycleState is prepared for Phase 5 Flow integration.
             logger.info("[1/3] Running Market Intelligence Crew...")
             market_result = market_crew.kickoff()
-            logger.info("Market Crew output: %s", str(market_result)[:200])
+            logger.info("Market Crew completed. Raw output length: %d", len(str(market_result)))
 
             logger.info("[2/3] Running Strategy Crew...")
             strategy_result = strategy_crew.kickoff()
-            logger.info("Strategy Crew output: %s", str(strategy_result)[:200])
+            strategy_len = len(str(strategy_result))
+            logger.info("Strategy Crew completed. Raw output length: %d", strategy_len)
 
             logger.info("[3/3] Running Execution Crew...")
             execution_result = execution_crew.kickoff()
-            logger.info("Execution Crew output: %s", str(execution_result)[:200])
+            execution_len = len(str(execution_result))
+            logger.info("Execution Crew completed. Raw output length: %d", execution_len)
 
-            logger.info("Cycle %d complete.", cycle)
+            logger.info(state.summary)
 
         except KeyboardInterrupt:
             break
         except Exception:
             logger.exception("Error in trading cycle %d", cycle)
+            state.errors.append(f"Cycle {cycle} failed")
             notification_service.notify_error(f"Error in cycle {cycle}")
 
         if not _shutdown_requested:

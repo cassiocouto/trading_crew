@@ -6,10 +6,14 @@ portfolio state synchronized with exchange reality.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from crewai import Agent
 
 from trading_crew.tools.notification_tool import SendNotificationTool
-from trading_crew.services.notification_service import NotificationService
+
+if TYPE_CHECKING:
+    from trading_crew.services.notification_service import NotificationService
 
 
 def create_monitor_agent(

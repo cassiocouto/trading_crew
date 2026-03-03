@@ -6,12 +6,12 @@ signal must pass through the risk pipeline before becoming an order.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class RiskVerdict(str, Enum):
+class RiskVerdict(StrEnum):
     """Outcome of a risk check.
 
     APPROVED: Signal passes all risk checks, proceed to execution.
