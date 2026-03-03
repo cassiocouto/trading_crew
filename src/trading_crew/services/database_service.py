@@ -14,7 +14,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from trading_crew.db.models import (
     OHLCVRecord,
@@ -182,6 +182,29 @@ class DatabaseService:
                 OrderRecord.status.in_(["pending", "open", "partially_filled"])
             )
             return list(session.execute(stmt).scalars().all())
+
+    def count_open_orders(self) -> int:
+        """Count all orders with an active (non-terminal) status."""
+        with get_session(self._engine) as session:
+            stmt = select(func.count()).select_from(OrderRecord).where(
+                OrderRecord.status.in_(["pending", "open", "partially_filled"])
+            )
+            result = session.execute(stmt).scalar_one()
+            return int(result)
+
+    def update_order_status_by_exchange_id(self, exchange_order_id: str, status: str) -> bool:
+        """Update order status by exchange-assigned ID.
+
+        Returns:
+            True if an order was found and updated, False otherwise.
+        """
+        normalized = status.lower()
+        with get_session(self._engine) as session:
+            record = self._find_order_record(session, exchange_order_id)
+            if record is None:
+                return False
+            record.status = normalized
+            return True
 
     # -- Signals (audit trail) ------------------------------------------------
 

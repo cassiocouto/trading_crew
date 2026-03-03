@@ -18,7 +18,109 @@ YAML files for CrewAI agent/task definitions.
 | `TELEGRAM_BOT_TOKEN` | (empty) | Telegram bot token |
 | `TELEGRAM_CHAT_ID` | (empty) | Telegram chat ID |
 | `OPENAI_API_KEY` | (empty) | LLM API key for CrewAI |
+| `LOOP_INTERVAL_SECONDS` | `900` | Main loop cadence (15m default) |
+| `COST_CONTENTION_ENABLED` | `true` | Enable interval-gated crew execution |
+| `MARKET_CREW_INTERVAL_SECONDS` | `900` | Market crew schedule |
+| `STRATEGY_CREW_INTERVAL_SECONDS` | `1800` | Strategy crew schedule |
+| `EXECUTION_CREW_INTERVAL_SECONDS` | `900` | Execution crew schedule |
+| `DAILY_TOKEN_BUDGET_ENABLED` | `true` | Enable daily budget guard (estimated tokens) |
+| `DAILY_TOKEN_BUDGET_TOKENS` | `600000` | Estimated daily token cap |
+| `TOKEN_BUDGET_DEGRADE_MODE` | `strategy_only` | `off`, `strategy_only`, or `hard_stop` |
+| `NON_LLM_MONITOR_ON_HARD_STOP` | `true` | Keep lightweight open-order probe running in hard-stop |
+| `MARKET_CREW_ESTIMATED_TOKENS` | `1500` | Estimated token cost per market crew run |
+| `STRATEGY_CREW_ESTIMATED_TOKENS` | `6000` | Estimated token cost per strategy crew run |
+| `EXECUTION_CREW_ESTIMATED_TOKENS` | `1000` | Estimated token cost per execution crew run |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
+
+## Early Cost Contention Phase (default)
+
+Trading Crew now defaults to a cost-aware cadence:
+
+- Base loop: every 15 minutes (`LOOP_INTERVAL_SECONDS=900`)
+- Market crew: every 15 minutes
+- Strategy crew: every 30 minutes
+- Execution crew: every 15 minutes, and skipped when not due and no open orders exist
+
+This avoids 60-second LLM-driven scalping behavior, which is often uneconomical
+after token costs.
+
+### Daily Budget Degrade Mode
+
+A second guard now runs by default: estimated daily token accounting in UTC.
+
+- Budget starts at `DAILY_TOKEN_BUDGET_TOKENS`
+- Each crew run increments estimated usage by its configured estimate
+- Behavior is controlled by `TOKEN_BUDGET_DEGRADE_MODE`
+- Counters automatically reset at UTC day rollover
+
+This protects net profitability by reducing expensive decision cycles when costs
+run too high.
+
+#### Degrade levels
+
+- `off`: no budget-triggered degrade.
+- `strategy_only`: when projected Strategy cost would breach budget, Strategy crew
+  is disabled for the rest of the UTC day.
+- `hard_stop`: includes `strategy_only`; once budget is fully exhausted, all LLM
+  crews are skipped until UTC reset.
+
+In `hard_stop` mode, optional non-LLM order probing continues each cycle when
+`NON_LLM_MONITOR_ON_HARD_STOP=true`.
+
+## LLM Token Usage and Cost Estimation
+
+CrewAI does not consume tokens continuously on its own. Tokens are consumed when
+you execute agent tasks (for this project, each crew `kickoff()` call).
+
+In the default loop, three crews run each cycle:
+
+- Market crew
+- Strategy crew
+- Execution crew
+
+### Estimation Formula
+
+Use this per-cycle estimate:
+
+`cost_per_cycle = (input_tokens_per_cycle / 1_000_000 * input_price_per_million) + (output_tokens_per_cycle / 1_000_000 * output_price_per_million)`
+
+Then:
+
+- `cycles_per_day = 86400 / loop_interval_seconds`
+- `daily_cost = cost_per_cycle * cycles_per_day`
+- `monthly_cost ~= daily_cost * 30`
+
+At `loop_interval_seconds = 900`, you run `96` cycles/day.
+
+### Example Scenarios (illustrative)
+
+Assumptions for examples below:
+
+- Input price: `$0.15 / 1M` tokens
+- Output price: `$0.60 / 1M` tokens
+- Loop interval: `900s` (`96` cycles/day)
+
+| Scenario | Avg input tokens/cycle | Avg output tokens/cycle | Cost/cycle | Daily cost | Monthly cost (30d) |
+|----------|--------------------------|--------------------------|------------|------------|--------------------|
+| Lean prompts | 2,000 | 500 | $0.0006 | $0.06 | $1.80 |
+| Typical dev run | 8,000 | 2,000 | $0.0024 | $0.23 | $6.90 |
+| Verbose/heavy context | 20,000 | 5,000 | $0.0060 | $0.58 | $17.28 |
+
+### Practical Measurement Workflow
+
+1. Run the bot for 10-20 cycles with realistic settings.
+2. Capture total input/output tokens from your provider dashboard/logs.
+3. Divide by cycle count to get average tokens/cycle.
+4. Plug those values into the formula above.
+5. Add 20-40% headroom for volatility.
+
+### Cost Control Tips
+
+- Increase `loop_interval_seconds` (largest direct reduction in spend).
+- Skip strategy/execution crews when no fresh market change exists.
+- Keep tool outputs short (avoid large JSON payloads per task).
+- Use cheaper models for routine cycles and stronger models only when needed.
+- Limit max tokens per task to cap worst-case responses.
 
 ## Risk Parameters
 

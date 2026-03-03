@@ -29,6 +29,14 @@ class TradingMode(StrEnum):
     LIVE = "live"
 
 
+class TokenBudgetDegradeMode(StrEnum):
+    """Maximum degrade stage allowed after daily budget pressure."""
+
+    OFF = "off"
+    STRATEGY_ONLY = "strategy_only"
+    HARD_STOP = "hard_stop"
+
+
 class Settings(BaseSettings):
     """Central application configuration.
 
@@ -73,8 +81,23 @@ class Settings(BaseSettings):
     risk: RiskParams = Field(default_factory=RiskParams)
 
     # -- Trading loop ---------------------------------------------------------
-    loop_interval_seconds: int = Field(default=60, ge=10)
+    loop_interval_seconds: int = Field(default=900, ge=10)
     stale_order_cancel_minutes: int = Field(default=10, ge=1)
+
+    # -- Cost contention mode -------------------------------------------------
+    cost_contention_enabled: bool = True
+    market_crew_interval_seconds: int = Field(default=900, ge=10)
+    strategy_crew_interval_seconds: int = Field(default=1800, ge=10)
+    execution_crew_interval_seconds: int = Field(default=900, ge=10)
+
+    # -- Daily token budget guard ---------------------------------------------
+    daily_token_budget_enabled: bool = True
+    daily_token_budget_tokens: int = Field(default=600_000, ge=1)
+    token_budget_degrade_mode: TokenBudgetDegradeMode = TokenBudgetDegradeMode.STRATEGY_ONLY
+    non_llm_monitor_on_hard_stop: bool = True
+    market_crew_estimated_tokens: int = Field(default=1_500, ge=0)
+    strategy_crew_estimated_tokens: int = Field(default=6_000, ge=0)
+    execution_crew_estimated_tokens: int = Field(default=1_000, ge=0)
 
     # -- Logging --------------------------------------------------------------
     log_level: str = "INFO"

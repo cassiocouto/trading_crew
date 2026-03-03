@@ -112,9 +112,27 @@ files. Key settings:
 | `EXCHANGE_ID` | `binance` | CCXT exchange identifier |
 | `EXCHANGE_SANDBOX` | `true` | Use exchange testnet |
 | `DATABASE_URL` | `sqlite:///trading_crew.db` | Database connection string |
+| `LOOP_INTERVAL_SECONDS` | `900` | Main loop cadence (15m default) |
+| `COST_CONTENTION_ENABLED` | `true` | Enable cost-aware crew scheduling |
+| `DAILY_TOKEN_BUDGET_TOKENS` | `600000` | Estimated daily token budget cap |
+| `TOKEN_BUDGET_DEGRADE_MODE` | `strategy_only` | `off`, `strategy_only`, or `hard_stop` |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 See [.env.example](.env.example) for all available settings.
+
+### LLM Token Costs
+
+CrewAI token usage is driven by task execution (not constant idle usage). In the
+default 900-second loop, three crews run each cycle (`96` cycles/day), so costs
+scale with tokens per cycle and model pricing.
+
+Use:
+
+- `cost_per_cycle = (input_tokens/1_000_000 * input_price) + (output_tokens/1_000_000 * output_price)`
+- `daily_cost = cost_per_cycle * (86400 / loop_interval_seconds)`
+
+See [`docs/configuration.md`](docs/docs/configuration.md) for a full estimator
+table, daily budget degrade mode, and cost-control strategies.
 
 ## Contributing
 

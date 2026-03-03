@@ -25,12 +25,13 @@ cp .env.example .env
 ## Configuration
 
 Edit `.env` with your settings. The defaults are safe — paper trading mode
-with Binance sandbox:
+with Binance sandbox and a cost-aware 15-minute loop:
 
 ```bash
 TRADING_MODE=paper
 EXCHANGE_ID=binance
 EXCHANGE_SANDBOX=true
+LOOP_INTERVAL_SECONDS=900
 ```
 
 You'll need an OpenAI API key (or local LLM) for the CrewAI agents:
