@@ -23,6 +23,14 @@ YAML files for CrewAI agent/task definitions.
 | `MARKET_CREW_INTERVAL_SECONDS` | `900` | Market crew schedule |
 | `STRATEGY_CREW_INTERVAL_SECONDS` | `1800` | Strategy crew schedule |
 | `EXECUTION_CREW_INTERVAL_SECONDS` | `900` | Execution crew schedule |
+| `MARKET_PIPELINE_MODE` | `deterministic` | `deterministic`, `crewai`, or `hybrid` |
+| `MARKET_DATA_CANDLE_LIMIT` | `120` | Candle count fetched/analyzed per market cycle |
+| `MARKET_REGIME_VOLATILITY_THRESHOLD` | `0.03` | Regime volatile cutoff (`atr_14 / price`) |
+| `MARKET_REGIME_TREND_THRESHOLD` | `0.01` | Regime trending cutoff (`\|ema_fast-ema_slow\| / price`) |
+| `SENTIMENT_ENABLED` | `false` | Enable optional deterministic sentiment enrichment |
+| `SENTIMENT_FEAR_GREED_ENABLED` | `true` | Enable Fear & Greed source |
+| `SENTIMENT_FEAR_GREED_WEIGHT` | `1.0` | Source weight in confidence-weighted blend |
+| `SENTIMENT_REQUEST_TIMEOUT_SECONDS` | `5` | HTTP timeout for sentiment source calls |
 | `DAILY_TOKEN_BUDGET_ENABLED` | `true` | Enable daily budget guard (estimated tokens) |
 | `DAILY_TOKEN_BUDGET_TOKENS` | `600000` | Estimated daily token cap |
 | `TOKEN_BUDGET_DEGRADE_MODE` | `strategy_only` | `off`, `strategy_only`, or `hard_stop` |
@@ -43,6 +51,31 @@ Trading Crew now defaults to a cost-aware cadence:
 
 This avoids 60-second LLM-driven scalping behavior, which is often uneconomical
 after token costs.
+
+### Phase 2 Market Pipeline
+
+Phase 2 introduces a deterministic market pipeline:
+
+`fetch ticker/candles -> store in DB -> compute indicators/regime`
+
+By default, `MARKET_PIPELINE_MODE=deterministic`, so Market Intelligence can run
+without depending on LLM output parsing. This lowers token spend and makes market
+data + analysis reproducible. Set `hybrid` if you want both deterministic and
+CrewAI market execution in parallel.
+
+Regime classification is tunable per deployment:
+
+- `MARKET_REGIME_VOLATILITY_THRESHOLD` (default `0.03`)
+- `MARKET_REGIME_TREND_THRESHOLD` (default `0.01`)
+
+These values control how sensitive `"volatile"` and `"trending"` labels are.
+
+If `SENTIMENT_ENABLED=true`, deterministic sentiment is added to
+`MarketAnalysis.metadata` as:
+
+- `sentiment_score` in `[-1, 1]`
+- `sentiment_confidence` in `[0, 1]`
+- `sentiment_sources` (source names used in aggregation)
 
 ### Daily Budget Degrade Mode
 

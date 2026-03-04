@@ -37,6 +37,14 @@ class TokenBudgetDegradeMode(StrEnum):
     HARD_STOP = "hard_stop"
 
 
+class MarketPipelineMode(StrEnum):
+    """How market intelligence should execute each due cycle."""
+
+    CREWAI = "crewai"
+    DETERMINISTIC = "deterministic"
+    HYBRID = "hybrid"
+
+
 class Settings(BaseSettings):
     """Central application configuration.
 
@@ -89,6 +97,16 @@ class Settings(BaseSettings):
     market_crew_interval_seconds: int = Field(default=900, ge=10)
     strategy_crew_interval_seconds: int = Field(default=1800, ge=10)
     execution_crew_interval_seconds: int = Field(default=900, ge=10)
+
+    # -- Market intelligence pipeline -----------------------------------------
+    market_pipeline_mode: MarketPipelineMode = MarketPipelineMode.DETERMINISTIC
+    market_data_candle_limit: int = Field(default=120, ge=20, le=1000)
+    market_regime_volatility_threshold: float = Field(default=0.03, ge=0.0, le=1.0)
+    market_regime_trend_threshold: float = Field(default=0.01, ge=0.0, le=1.0)
+    sentiment_enabled: bool = False
+    sentiment_fear_greed_enabled: bool = True
+    sentiment_fear_greed_weight: float = Field(default=1.0, ge=0.0)
+    sentiment_request_timeout_seconds: int = Field(default=5, ge=1, le=30)
 
     # -- Daily token budget guard ---------------------------------------------
     daily_token_budget_enabled: bool = True

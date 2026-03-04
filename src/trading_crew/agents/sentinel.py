@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from crewai import Agent
 
-from trading_crew.tools.database_tool import SaveTickerTool
+from trading_crew.tools.database_tool import SaveOHLCVBatchTool, SaveTickerTool
 from trading_crew.tools.exchange_tool import FetchOHLCVTool, FetchTickerTool
 
 if TYPE_CHECKING:
@@ -44,6 +44,7 @@ def create_sentinel_agent(
             FetchTickerTool(exchange_service=exchange_service),
             FetchOHLCVTool(exchange_service=exchange_service),
             SaveTickerTool(db_service=db_service),
+            SaveOHLCVBatchTool(db_service=db_service),
         ],
         verbose=True,
     )

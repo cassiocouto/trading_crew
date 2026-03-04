@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from trading_crew.models.market import OHLCV, MarketAnalysis, Ticker
+from trading_crew.models.market import OHLCV, MarketAnalysis, MarketMetadata, Ticker
 from trading_crew.models.order import (
     Order,
     OrderFill,
@@ -109,6 +109,12 @@ class TestMarketAnalysis:
         )
         assert analysis.get_indicator("ema_fast") == 59500.0
         assert analysis.get_indicator("nonexistent") is None
+
+    def test_metadata_getitem_and_get_behavior(self) -> None:
+        metadata = MarketMetadata()
+        with pytest.raises(KeyError):
+            _ = metadata["sentiment_score"]
+        assert metadata.get("sentiment_score") is None
 
 
 @pytest.mark.unit

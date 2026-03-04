@@ -13,11 +13,13 @@ from trading_crew.main import (
     RunPlan,
     _accumulate_estimated_tokens,
     _apply_degrade_to_plan,
+    _apply_market_data_gate,
     _build_run_plan,
     _is_due,
     _refresh_budget_day,
     _update_degrade_level,
 )
+from trading_crew.models.cycle import CycleState
 from trading_crew.services.notification_service import NotificationService
 
 
@@ -145,3 +147,12 @@ def test_accumulate_estimated_tokens() -> None:
     state = BudgetRuntimeState(token_budget_day=datetime.now(UTC).date())
     _accumulate_estimated_tokens(settings, state, ran_market=True, ran_strategy=False, ran_execution=True)
     assert state.estimated_tokens_used_today == 2_500
+
+
+@pytest.mark.unit
+def test_apply_market_data_gate_disables_decision_crews_on_empty_analyses() -> None:
+    plan = RunPlan(run_market=True, run_strategy=True, run_execution=True, open_orders_count=0)
+    state = CycleState(cycle_number=1, symbols=["BTC/USDT"])
+    out = _apply_market_data_gate(plan, state)
+    assert out.run_strategy is False
+    assert out.run_execution is False

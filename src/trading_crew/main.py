@@ -2,15 +2,15 @@
 
 Initializes all services and runs the trading loop.
 
-SCAFFOLD STATUS (Phase 1):
+CURRENT STATUS (Phase 1 + Phase 2 Market Pipeline):
   The CrewAI crews are structurally defined but the inter-crew data flow
   currently relies on LLM-mediated text output. A typed CycleState DTO
   is defined for deterministic handoff (see models/cycle.py) and will be
   wired into a CrewAI Flow in Phase 5. Until then, crews run sequentially
   and CycleState fields are not yet populated from crew outputs.
 
-  To run actual trades, the Phase 2-4 implementations must be completed
-  (agent tools, strategy integration, deterministic risk pipeline).
+  Phase 2 deterministic market intelligence is available (fetch/analyze/store),
+  while full strategy/execution determinism (Phases 3-4) remains in progress.
 
 Usage:
     trading-crew              # via installed script
@@ -37,7 +37,12 @@ from trading_crew.agents.risk_manager import create_risk_manager_agent
 from trading_crew.agents.sentiment import create_sentiment_agent
 from trading_crew.agents.sentinel import create_sentinel_agent
 from trading_crew.agents.strategist import create_strategist_agent
-from trading_crew.config.settings import Settings, TokenBudgetDegradeMode, get_settings
+from trading_crew.config.settings import (
+    MarketPipelineMode,
+    Settings,
+    TokenBudgetDegradeMode,
+    get_settings,
+)
 from trading_crew.crews.execution_crew import ExecutionCrew
 from trading_crew.crews.market_crew import MarketCrew
 from trading_crew.crews.strategy_crew import StrategyCrew
@@ -46,7 +51,9 @@ from trading_crew.models.cycle import CycleState
 from trading_crew.risk.circuit_breaker import CircuitBreaker
 from trading_crew.services.database_service import DatabaseService
 from trading_crew.services.exchange_service import ExchangeService
+from trading_crew.services.market_intelligence_service import MarketIntelligenceService
 from trading_crew.services.notification_service import NotificationService
+from trading_crew.services.sentiment_service import SentimentService
 
 logger = logging.getLogger("trading_crew")
 
@@ -321,6 +328,16 @@ def _accumulate_estimated_tokens(
         budget_state.estimated_tokens_used_today += settings.execution_crew_estimated_tokens
 
 
+def _apply_market_data_gate(plan: RunPlan, state: CycleState) -> RunPlan:
+    """Skip downstream decision crews when no market analyses are available."""
+    if state.market_analyses:
+        return plan
+    plan.run_strategy = False
+    if plan.open_orders_count is None or plan.open_orders_count <= 0:
+        plan.run_execution = False
+    return plan
+
+
 def main() -> None:
     """Main entry point — initialize services and run the scaffold trading loop."""
     settings = get_settings()
@@ -332,6 +349,13 @@ def main() -> None:
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))
     logger.info("Loop interval: %ds", settings.loop_interval_seconds)
+    logger.info("Market pipeline mode: %s", settings.market_pipeline_mode.value)
+    logger.info(
+        "Market regime thresholds: volatility=%.4f, trend=%.4f",
+        settings.market_regime_volatility_threshold,
+        settings.market_regime_trend_threshold,
+    )
+    logger.info("Sentiment enrichment enabled: %s", settings.sentiment_enabled)
     logger.info("Cost contention mode: %s", settings.cost_contention_enabled)
     if settings.cost_contention_enabled:
         logger.info(
@@ -378,6 +402,22 @@ def main() -> None:
     )
 
     db_service = DatabaseService(settings.database_url)
+    sentiment_service = (
+        SentimentService(
+            fear_greed_enabled=settings.sentiment_fear_greed_enabled,
+            fear_greed_weight=settings.sentiment_fear_greed_weight,
+            timeout_seconds=settings.sentiment_request_timeout_seconds,
+        )
+        if settings.sentiment_enabled
+        else None
+    )
+    market_intelligence_service = MarketIntelligenceService(
+        exchange_service,
+        db_service,
+        sentiment_service=sentiment_service,
+        regime_volatility_threshold=settings.market_regime_volatility_threshold,
+        regime_trend_threshold=settings.market_regime_trend_threshold,
+    )
     notification_service = NotificationService.from_settings()
     circuit_breaker = CircuitBreaker(settings.risk)
 
@@ -468,10 +508,32 @@ def main() -> None:
             plan = _apply_degrade_to_plan(settings, budget_state, plan)
 
             if plan.run_market:
-                logger.info("[1/3] Running Market Intelligence Crew...")
-                market_result = market_crew.kickoff()
-                logger.info("Market Crew completed. Raw output length: %d", len(str(market_result)))
+                if settings.market_pipeline_mode in (
+                    MarketPipelineMode.DETERMINISTIC,
+                    MarketPipelineMode.HYBRID,
+                ):
+                    state.market_analyses = market_intelligence_service.run_cycle(
+                        symbols=settings.symbols,
+                        timeframe=settings.default_timeframe,
+                        candle_limit=settings.market_data_candle_limit,
+                    )
+                    logger.info(
+                        "Market deterministic pipeline completed. Analyses: %d",
+                        len(state.market_analyses),
+                    )
+
+                if settings.market_pipeline_mode in (
+                    MarketPipelineMode.CREWAI,
+                    MarketPipelineMode.HYBRID,
+                ):
+                    logger.info("[1/3] Running Market Intelligence Crew...")
+                    market_result = market_crew.kickoff()
+                    logger.info(
+                        "Market Crew completed. Raw output length: %d", len(str(market_result))
+                    )
                 last_market_run = now
+                if settings.market_pipeline_mode != MarketPipelineMode.CREWAI:
+                    plan = _apply_market_data_gate(plan, state)
             else:
                 logger.info("[1/3] Skipping Market Crew (interval not due)")
 

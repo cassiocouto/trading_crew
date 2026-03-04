@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Ticker(BaseModel, frozen=True):
@@ -85,6 +85,41 @@ class OrderBookEntry(BaseModel, frozen=True):
     amount: float = Field(gt=0)
 
 
+class MarketMetadata(BaseModel):
+    """Typed metadata attached to market analyses.
+
+    Known fields are explicitly typed while still allowing future extension via
+    extra keys. This is intentionally not a full `dict` replacement; prefer
+    attribute access (`metadata.sentiment_score`) over dict mutation methods.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    market_regime: str | None = None
+    candle_count: int | None = None
+    sentiment_score: float | None = None
+    sentiment_confidence: float | None = None
+    sentiment_sources: list[str] = Field(default_factory=list)
+
+    def __getitem__(self, key: str) -> Any:
+        """Backwards-compatible dict-like access for callers."""
+        if hasattr(self, key):
+            value = getattr(self, key)
+            if value is None:
+                raise KeyError(key)
+            return value
+        extra = self.model_extra or {}
+        return extra[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Backwards-compatible dict-like .get for callers."""
+        if hasattr(self, key):
+            value = getattr(self, key)
+            return default if value is None else value
+        extra = self.model_extra or {}
+        return extra.get(key, default)
+
+
 class MarketAnalysis(BaseModel, frozen=True):
     """Processed market data with technical indicators.
 
@@ -109,7 +144,7 @@ class MarketAnalysis(BaseModel, frozen=True):
     current_price: float = Field(gt=0)
     indicators: dict[str, float] = Field(default_factory=dict)
     ohlcv_data: list[OHLCV] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MarketMetadata = Field(default_factory=lambda: MarketMetadata())
 
     def get_indicator(self, name: str) -> float | None:
         """Safely retrieve an indicator value by name."""

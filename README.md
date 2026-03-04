@@ -114,6 +114,10 @@ files. Key settings:
 | `DATABASE_URL` | `sqlite:///trading_crew.db` | Database connection string |
 | `LOOP_INTERVAL_SECONDS` | `900` | Main loop cadence (15m default) |
 | `COST_CONTENTION_ENABLED` | `true` | Enable cost-aware crew scheduling |
+| `MARKET_PIPELINE_MODE` | `deterministic` | Market execution mode (`deterministic`/`crewai`/`hybrid`) |
+| `MARKET_REGIME_VOLATILITY_THRESHOLD` | `0.03` | Regime volatile cutoff (`atr_14 / price`) |
+| `MARKET_REGIME_TREND_THRESHOLD` | `0.01` | Regime trending cutoff (`|ema_fast-ema_slow| / price`) |
+| `SENTIMENT_ENABLED` | `false` | Optional deterministic sentiment enrichment |
 | `DAILY_TOKEN_BUDGET_TOKENS` | `600000` | Estimated daily token budget cap |
 | `TOKEN_BUDGET_DEGRADE_MODE` | `strategy_only` | `off`, `strategy_only`, or `hard_stop` |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
