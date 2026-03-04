@@ -1,4 +1,4 @@
-.PHONY: install dev lint type-check test test-unit test-integration backtest format pre-commit docs clean
+.PHONY: install dev lint type-check test test-unit test-integration backtest backtest-run backtest-data format pre-commit docs clean
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -43,6 +43,20 @@ test-integration:  ## Run integration tests only
 
 backtest:  ## Run backtesting tests
 	uv run pytest -m backtest
+
+backtest-run:  ## Run backtest script (BTC/USDT 1h, last 90 days)
+	uv run python scripts/backtest_runner.py \
+		--symbol BTC/USDT --exchange binance --timeframe 1h \
+		--from-date $(shell date -d "-90 days" +%Y-%m-%d 2>/dev/null || python -c "from datetime import date, timedelta; print(date.today()-timedelta(days=90))") \
+		--to-date $(shell date +%Y-%m-%d 2>/dev/null || python -c "from datetime import date; print(date.today())") \
+		--compare
+
+backtest-data:  ## Fetch and cache OHLCV data only (no backtest run)
+	uv run python scripts/backtest_runner.py \
+		--symbol BTC/USDT --exchange binance --timeframe 1h \
+		--from-date $(shell date -d "-90 days" +%Y-%m-%d 2>/dev/null || python -c "from datetime import date, timedelta; print(date.today()-timedelta(days=90))") \
+		--to-date $(shell date +%Y-%m-%d 2>/dev/null || python -c "from datetime import date; print(date.today())") \
+		--fetch --data-only
 
 test-cov:  ## Run tests with coverage report
 	uv run pytest --cov=trading_crew --cov-report=html --cov-report=term-missing

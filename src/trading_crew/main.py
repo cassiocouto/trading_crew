@@ -2,7 +2,7 @@
 
 Initializes all services and runs the trading loop.
 
-CURRENT STATUS (v0.5.0 — Phase 5: Flow Orchestrator):
+CURRENT STATUS (v0.6.0 — Phase 6: Backtesting Engine):
   Each cycle is orchestrated by ``TradingFlow`` — a CrewAI Flow that wires
   the market, strategy, and execution phases with typed routing, event hooks
   (on_order_filled, on_circuit_breaker_activated, on_stop_loss_triggered),
@@ -393,7 +393,7 @@ def main() -> None:
     _setup_logging(settings.log_level)
 
     logger.info("=" * 60)
-    logger.info("Trading Crew v0.5.0 starting (Phase 5: Flow Orchestrator)")
+    logger.info("Trading Crew v0.6.0 starting (Phase 6: Backtesting Engine)")
     logger.info("Mode: %s", settings.trading_mode.value)
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))

@@ -191,6 +191,76 @@ class ExchangeService:
             for candle in raw_candles
         ]
 
+    def fetch_ohlcv_range(
+        self,
+        symbol: str,
+        timeframe: str,
+        since: datetime,
+        until: datetime,
+        batch_size: int = 500,
+    ) -> list[OHLCV]:
+        """Fetch all OHLCV candles in [since, until] using paginated API calls.
+
+        CCXT caps individual requests at 500-1000 candles. This method iterates
+        forward in batches of batch_size until the returned data passes `until`
+        or no new candles arrive.
+
+        Args:
+            symbol: Trading pair (e.g. "BTC/USDT").
+            timeframe: Candle period (e.g. "1h", "1d").
+            since: Inclusive start datetime (must be timezone-aware).
+            until: Inclusive end datetime (must be timezone-aware).
+            batch_size: Number of candles to request per API call.
+
+        Returns:
+            All candles with timestamp in [since, until], oldest first.
+        """
+        since_ms = int(since.timestamp() * 1000)
+        until_ms = int(until.timestamp() * 1000)
+        all_candles: list[OHLCV] = []
+        cursor_ms = since_ms
+
+        while cursor_ms <= until_ms:
+            _since = cursor_ms  # bind loop variable for lambda capture
+            raw_candles = self._retry(
+                lambda _s=_since: self._exchange.fetch_ohlcv(
+                    symbol, timeframe, since=_s, limit=batch_size
+                )
+            )
+            if not raw_candles:
+                break
+
+            batch: list[OHLCV] = []
+            last_ts_ms = cursor_ms
+            for candle in raw_candles:
+                ts_ms = candle[0]
+                if ts_ms > until_ms:
+                    break
+                last_ts_ms = ts_ms
+                batch.append(
+                    OHLCV(
+                        symbol=symbol,
+                        exchange=self._exchange_id,
+                        timeframe=timeframe,
+                        timestamp=datetime.fromtimestamp(ts_ms / 1000, tz=UTC),
+                        open=float(candle[1]),
+                        high=float(candle[2]),
+                        low=float(candle[3]),
+                        close=float(candle[4]),
+                        volume=float(candle[5]),
+                    )
+                )
+
+            all_candles.extend(batch)
+
+            if len(raw_candles) < batch_size:
+                break
+            if last_ts_ms <= cursor_ms:
+                break
+            cursor_ms = last_ts_ms + 1
+
+        return all_candles
+
     def fetch_order_book(self, symbol: str, limit: int = 20) -> dict[str, list[list[float]]]:
         """Fetch the order book for a trading pair.
 

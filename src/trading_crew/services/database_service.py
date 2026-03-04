@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
@@ -147,6 +147,54 @@ class DatabaseService:
                     volume=r.volume,
                 )
                 for r in reversed(records)
+            ]
+
+    def get_ohlcv_range(
+        self,
+        symbol: str,
+        exchange: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+    ) -> list[OHLCV]:
+        """Fetch OHLCV candles within a specific date range, ascending by timestamp.
+
+        Args:
+            symbol: Trading pair.
+            exchange: Exchange identifier.
+            timeframe: Candle period (e.g. "1h").
+            start: Inclusive start datetime (timezone-aware recommended).
+            end: Inclusive end datetime.
+
+        Returns:
+            Candles sorted oldest-first whose timestamp falls in [start, end].
+        """
+        with get_session(self._engine) as session:
+            stmt = (
+                select(OHLCVRecord)
+                .where(
+                    OHLCVRecord.symbol == symbol,
+                    OHLCVRecord.exchange == exchange,
+                    OHLCVRecord.timeframe == timeframe,
+                    OHLCVRecord.timestamp >= start,
+                    OHLCVRecord.timestamp <= end,
+                )
+                .order_by(OHLCVRecord.timestamp.asc())
+            )
+            records = session.execute(stmt).scalars().all()
+            return [
+                OHLCV(
+                    symbol=r.symbol,
+                    exchange=r.exchange,
+                    timeframe=r.timeframe,
+                    timestamp=r.timestamp,
+                    open=r.open,
+                    high=r.high,
+                    low=r.low,
+                    close=r.close,
+                    volume=r.volume,
+                )
+                for r in records
             ]
 
     # -- Orders ---------------------------------------------------------------

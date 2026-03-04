@@ -35,7 +35,7 @@ and they collaborate through structured crews.
 - **Pluggable Strategies** — Add your own trading strategies by implementing a
   simple interface
 - **Backtesting** — Validate strategies against historical data before risking
-  real capital (coming soon)
+  real capital (see [Backtesting](#backtesting))
 
 ## Quick Start
 
@@ -74,9 +74,33 @@ This starts the system in simulation mode — no real orders are placed.
 ```bash
 make test          # All tests
 make test-unit     # Unit tests only
+make backtest      # Backtesting tests only
 make lint          # Linter
 make type-check    # Type checker
 ```
+
+## Backtesting
+
+Run a historical backtest using locally cached OHLCV data:
+
+```bash
+# Fetch data first (saves to local SQLite DB):
+make backtest-data
+
+# Run a comparison of all built-in strategies:
+make backtest-run
+
+# Or run directly with custom parameters:
+python scripts/backtest_runner.py \
+  --symbol BTC/USDT --exchange binance --timeframe 1h \
+  --from-date 2024-01-01 --to-date 2024-12-31 \
+  --fetch --compare --output results.json
+```
+
+The engine reuses the same `TechnicalAnalyzer → StrategyRunner → RiskPipeline`
+used in live trading. Fills are simulated at next-candle open with configurable
+slippage and fees. Metrics include Sharpe ratio, max drawdown, win rate,
+profit factor, and total return.
 
 ## Architecture
 
@@ -96,10 +120,12 @@ Fetch → Analyze → Signal → Risk Check → Execute → Monitor → Loop
   Phase 2 ──────┘          Phase 3 ────┘          Phase 4 (planned)
 ```
 
-> **Current status (Phase 3)**: Market intelligence and strategy/risk pipelines
-> run deterministically by default. `CycleState` carries typed data across
-> phases: `market_analyses` → `signals` → `risk_results` → `order_requests`.
-> CrewAI agents remain available in `crewai` or `hybrid` mode.
+> **Current status (v0.6.0 — Phase 6)**: Full trading loop runs as a `TradingFlow`
+> CrewAI Flow. All three crews (Market Intelligence, Strategy, Execution) are
+> wired together with circuit breakers, stop-loss monitoring, token budget
+> degradation, and cycle history persistence. A self-contained backtesting engine
+> lets you validate strategies against historical OHLCV data with zero look-ahead
+> bias before risking real capital.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
 

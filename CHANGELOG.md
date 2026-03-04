@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 6: Backtesting Engine (v0.6.0)
+- **BacktestService** — self-contained simulation engine that feeds historical OHLCV data through `TechnicalAnalyzer → StrategyRunner → RiskPipeline` (the same pipeline as live trading); guarantees zero look-ahead bias by only exposing candles `[0..i]` at step `i`
+- **Simulated fills** — MARKET orders fill at next-candle open ± configurable slippage; fees deducted from portfolio balance on every fill; stop-losses fill at `stop_loss_price` with no additional slippage
+- **Performance metrics** — total return %, Sharpe ratio (daily equity returns, risk-free rate = 0, annualized `sqrt(365)`), max drawdown %, win rate %, profit factor, trade count, and total fees
+- **`BacktestService.compare()`** — runs multiple pre-configured services over the same candle set and returns results sorted descending by Sharpe ratio
+- **Pydantic result models** (`src/trading_crew/models/backtest.py`) — `BacktestConfig` (with `Field` validators), `BacktestTrade` (frozen), `EquityPoint` (frozen), `BacktestResult` with `summary()`, `to_json()`, and `to_csv()` methods
+- **`DatabaseService.get_ohlcv_range()`** — new date-range query for OHLCV data (replaces `limit=N` workaround for historical backtests)
+- **`ExchangeService.fetch_ohlcv_range()`** — paginated API fetcher that iterates in forward-time batches of `batch_size=500` to retrieve arbitrarily long date ranges without hitting CCXT per-request caps
+- **`scripts/backtest_runner.py`** — standalone CLI with `--symbol`, `--exchange`, `--timeframe`, `--from-date`, `--to-date`, `--output`, `--fetch`, `--data-only`, `--compare`, `--slippage`, `--fee-rate`, `--initial-balance`
+- **`make backtest-run`** and **`make backtest-data`** Makefile targets for one-command backtesting and data prep
+- **27 new unit tests** in `tests/backtest/test_backtest_service.py` covering core backtest run, fill simulation, stop-loss trigger, no-look-ahead guarantee, metric calculations, Sharpe edge cases, strategy comparison, JSON/CSV export, and empty/flat candle scenarios
+- Version bumped to `v0.6.0`
+
 #### Phase 5: Flow Orchestrator (v0.5.0)
 - **TradingFlow** — `CrewAI Flow[CycleState]` that replaces the inline while-loop body in `main.py` with typed routing, event hooks, and cycle persistence
 - **Routing logic** — `_route_after_market` (halt / skip_strategy / strategy), `_route_after_strategy` (skip_execution / execution), `_route_after_execution` (post_cycle); all routing conditions explicitly specified including budget degrade, market data gate, and interval scheduling
@@ -82,6 +95,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Example configurations for Binance and NovaDAX
 
 ### Fixed
+
+#### Phase 6
+- **`entry_bar` always 0 on every `BacktestTrade`** — `_evaluate_signal` now receives the current candle index and stores it in `_PendingOrder.bar`; an `entry_bars: dict[str, int]` local dict threads the actual fill bar through `_fill_at_open`, `_check_stop_losses`, `_close_position`, and the end-of-data force-close loop so every `BacktestTrade.entry_bar` reflects the true fill bar index
+- **Sharpe ratio annualized as daily regardless of timeframe** — added `_periods_per_year(timeframe)` static method; `_compute_metrics` now accepts a `timeframe` argument and annualizes using `sqrt(periods_per_year)` (e.g. `sqrt(8760)` for `1h`, `sqrt(365)` for `1d`) instead of always using `sqrt(365)`
+- **BUY silently overwrites an existing open position** — `_fill_at_open` now skips a BUY order when `order.symbol in portfolio.positions`, preventing entry price, amount, and stop-loss from being lost to a second fill
+- **Unused `completed_trades` parameter on `_check_stop_losses`** — parameter removed; SL trades are already returned to the caller for appending
+- **E402 lint errors in `scripts/backtest_runner.py`** — all `trading_crew` imports moved inside `main()` so they are resolved after the `sys.path.insert`; avoids module-level import-order violations
 
 #### Phase 5
 - **Strategy phase reservation leak** — `strategy_phase()` now wraps the deterministic pipeline in `try/except`; any exception after the snapshot is taken triggers an immediate rollback before re-raising, preventing tentative reservations from persisting into the next cycle
