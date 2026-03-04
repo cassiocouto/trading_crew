@@ -152,6 +152,10 @@ class Settings(BaseSettings):
     strategy_crew_estimated_tokens: int = Field(default=6_000, ge=0)
     execution_crew_estimated_tokens: int = Field(default=1_000, ge=0)
 
+    # -- Flow orchestration (Phase 5) -----------------------------------------
+    save_cycle_history: bool = True
+    stop_loss_monitoring_enabled: bool = True
+
     # -- Logging --------------------------------------------------------------
     log_level: str = "INFO"
 

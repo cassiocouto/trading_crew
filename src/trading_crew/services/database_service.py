@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, select
 
 from trading_crew.db.models import (
+    CycleRecord,
     FailedOrderRecord,
     OHLCVRecord,
     OrderRecord,
@@ -453,6 +454,69 @@ class DatabaseService:
                 }
                 for r in records
             ]
+
+    # -- Cycle history --------------------------------------------------------
+
+    def save_cycle_summary(self, state: object, portfolio: object) -> None:
+        """Persist a one-row summary for a completed trading cycle.
+
+        Accepts the ``CycleState`` and ``Portfolio`` domain models (typed as
+        ``object`` to avoid circular imports).
+
+        On a ``cycle_number`` collision (e.g. restart with the same counter)
+        the existing row is updated in-place so the history table remains
+        consistent without duplicate entries.
+        """
+        import json as _json
+
+        from trading_crew.models.cycle import CycleState
+        from trading_crew.models.portfolio import Portfolio
+
+        if not isinstance(state, CycleState):
+            raise TypeError(f"Expected CycleState, got {type(state)}")
+        if not isinstance(portfolio, Portfolio):
+            raise TypeError(f"Expected Portfolio, got {type(portfolio)}")
+
+        with get_session(self._engine) as session:
+            existing = (
+                session.query(CycleRecord)
+                .filter_by(cycle_number=state.cycle_number)
+                .first()
+            )
+            timestamp = state.timestamp if state.timestamp.tzinfo is None else state.timestamp.replace(tzinfo=None)
+            if existing:
+                existing.timestamp = timestamp
+                existing.num_signals = len(state.signals)
+                existing.num_orders_placed = len(state.orders)
+                existing.num_orders_filled = len(state.filled_orders)
+                existing.num_orders_cancelled = len(state.cancelled_orders)
+                existing.num_orders_failed = len(state.failed_orders)
+                existing.portfolio_balance = portfolio.balance_quote
+                existing.realized_pnl = portfolio.realized_pnl
+                existing.circuit_breaker_tripped = state.circuit_breaker_tripped
+                existing.errors_json = _json.dumps(state.errors)
+            else:
+                record = CycleRecord(
+                    cycle_number=state.cycle_number,
+                    timestamp=timestamp,
+                    num_signals=len(state.signals),
+                    num_orders_placed=len(state.orders),
+                    num_orders_filled=len(state.filled_orders),
+                    num_orders_cancelled=len(state.cancelled_orders),
+                    num_orders_failed=len(state.failed_orders),
+                    portfolio_balance=portfolio.balance_quote,
+                    realized_pnl=portfolio.realized_pnl,
+                    circuit_breaker_tripped=state.circuit_breaker_tripped,
+                    errors_json=_json.dumps(state.errors),
+                )
+                session.add(record)
+        logger.debug(
+            "Saved cycle summary: cycle=%d, signals=%d, filled=%d, balance=%.2f",
+            state.cycle_number,
+            len(state.signals),
+            len(state.filled_orders),
+            portfolio.balance_quote,
+        )
 
     # -- Helpers --------------------------------------------------------------
 

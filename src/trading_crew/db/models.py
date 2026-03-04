@@ -12,8 +12,10 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
+    Index,
     Integer,
     String,
     Text,
@@ -246,3 +248,34 @@ class PortfolioRecord(Base):
     total_fees: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     num_positions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+
+class CycleRecord(Base):
+    """Per-cycle trading summary for auditability and historical analysis.
+
+    One row is written at the end of every cycle by ``TradingFlow``.
+    ``cycle_number`` is unique so duplicate writes (e.g. on restart with
+    the same counter) are detectable.
+    """
+
+    __tablename__ = "cycle_history"
+    __table_args__ = (
+        Index("ix_cycle_history_cycle_number", "cycle_number", unique=True),
+        Index("ix_cycle_history_timestamp", "timestamp"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cycle_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    num_signals: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    num_orders_placed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    num_orders_filled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    num_orders_cancelled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    num_orders_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    portfolio_balance: Mapped[float] = mapped_column(Float, nullable=False)
+    realized_pnl: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    circuit_breaker_tripped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    errors_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )

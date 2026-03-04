@@ -2,20 +2,18 @@
 
 Initializes all services and runs the trading loop.
 
-CURRENT STATUS (Phase 1-3):
-  Phase 2 — deterministic market intelligence (fetch/analyze/store) populates
-  CycleState.market_analyses without LLM involvement.
+CURRENT STATUS (v0.5.0 — Phase 5: Flow Orchestrator):
+  Each cycle is orchestrated by ``TradingFlow`` — a CrewAI Flow that wires
+  the market, strategy, and execution phases with typed routing, event hooks
+  (on_order_filled, on_circuit_breaker_activated, on_stop_loss_triggered),
+  stop-loss monitoring, and per-cycle DB persistence.
 
-  Phase 3 — deterministic strategy pipeline (StrategyRunner + RiskPipeline)
-  populates CycleState.signals, risk_results, and order_requests. Strategies
-  run against MarketAnalysis data produced by Phase 2, and signals pass
-  through the full risk pipeline (confidence filter, circuit breaker,
-  position sizing, stop-loss, portfolio limits).
-
-  The CrewAI crews remain available in CREWAI/HYBRID modes. In DETERMINISTIC
-  mode, the corresponding crew is skipped entirely.
-
-  Phase 4 (Execution Crew) and Phase 5 (CrewAI Flow) remain planned.
+  main() retains only the inter-cycle concerns that span the full run:
+    - budget refresh and token accumulation
+    - interval scheduling (RunPlan computation)
+    - sleep between cycles
+    - cross-cycle market-analysis cache (for stop-loss fallback)
+    - graceful shutdown and final portfolio persistence
 
 Usage:
     trading-crew              # via installed script
@@ -32,8 +30,12 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 import yaml
+
+if TYPE_CHECKING:
+    from trading_crew.models.cycle import CycleState
 
 from trading_crew.agents.analyst import create_analyst_agent
 from trading_crew.agents.executor import create_executor_agent
@@ -43,10 +45,7 @@ from trading_crew.agents.sentiment import create_sentiment_agent
 from trading_crew.agents.sentinel import create_sentinel_agent
 from trading_crew.agents.strategist import create_strategist_agent
 from trading_crew.config.settings import (
-    ExecutionPipelineMode,
-    MarketPipelineMode,
     Settings,
-    StrategyPipelineMode,
     TokenBudgetDegradeMode,
     get_settings,
 )
@@ -54,7 +53,7 @@ from trading_crew.crews.execution_crew import ExecutionCrew
 from trading_crew.crews.market_crew import MarketCrew
 from trading_crew.crews.strategy_crew import StrategyCrew
 from trading_crew.db.session import get_engine, init_db
-from trading_crew.models.cycle import CycleState
+from trading_crew.flows.trading_flow import TradingFlow
 from trading_crew.models.order import OrderRequest, OrderSide
 from trading_crew.models.portfolio import Portfolio, Position
 from trading_crew.risk.circuit_breaker import CircuitBreaker
@@ -394,7 +393,7 @@ def main() -> None:
     _setup_logging(settings.log_level)
 
     logger.info("=" * 60)
-    logger.info("Trading Crew v0.4.0 starting (Phase 4: Execution Crew)")
+    logger.info("Trading Crew v0.5.0 starting (Phase 5: Flow Orchestrator)")
     logger.info("Mode: %s", settings.trading_mode.value)
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))
@@ -580,31 +579,21 @@ def main() -> None:
     )
 
     # -- Trading loop ---------------------------------------------------------
-    # NOTE: In Phase 1, crews exchange data via LLM text output. CycleState
-    # is instantiated per cycle for logging structure, but its fields are NOT
-    # populated from crew outputs yet. Phase 5 will parse crew results into
-    # CycleState fields and wire them via a CrewAI Flow.
     logger.info("Entering trading loop (Ctrl+C to stop)...")
     cycle = 0
     last_market_run: float | None = None
     last_strategy_run: float | None = None
     last_execution_run: float | None = None
     budget_state = BudgetRuntimeState(token_budget_day=_utc_today())
+    # Cross-cycle cache: most recent market analyses, used as a stop-loss
+    # price fallback when the market phase is skipped this cycle.
+    last_market_analyses: dict = {}
 
     while not _shutdown_requested:
         cycle += 1
-        state = CycleState(cycle_number=cycle, symbols=settings.symbols)
         logger.info("--- Cycle %d ---", cycle)
 
         try:
-            portfolio_snapshot: Portfolio | None = None
-
-            if circuit_breaker.is_tripped:
-                logger.warning("Circuit breaker is tripped: %s", circuit_breaker.trip_reason)
-                logger.warning("Skipping cycle. Manual reset required.")
-                time.sleep(settings.loop_interval_seconds)
-                continue
-
             _refresh_budget_day(settings, budget_state)
             now = time.monotonic()
             plan = _build_run_plan(
@@ -618,165 +607,38 @@ def main() -> None:
             _update_degrade_level(settings, budget_state, notification_service)
             plan = _apply_degrade_to_plan(settings, budget_state, plan)
 
+            flow = TradingFlow(
+                cycle_number=cycle,
+                symbols=settings.symbols,
+                plan=plan,
+                portfolio=portfolio,
+                budget_state=budget_state,
+                cached_analyses=last_market_analyses,
+                circuit_breaker=circuit_breaker,
+                market_svc=market_intelligence_service,
+                strategy_runner=strategy_runner,
+                risk_pipeline=risk_pipeline,
+                execution_service=execution_service,
+                db_service=db_service,
+                notif_service=notification_service,
+                market_crew=market_crew,
+                strategy_crew=strategy_crew,
+                execution_crew=execution_crew,
+                settings=settings,
+            )
+            flow.kickoff()
+
+            # Update cross-cycle market analysis cache from this cycle's state
+            if plan.run_market and flow.state.market_analyses:
+                last_market_analyses = flow.state.market_analyses
+
+            # Update interval timestamps based on what actually ran
             if plan.run_market:
-                if settings.market_pipeline_mode in (
-                    MarketPipelineMode.DETERMINISTIC,
-                    MarketPipelineMode.HYBRID,
-                ):
-                    state.market_analyses = market_intelligence_service.run_cycle(
-                        symbols=settings.symbols,
-                        timeframe=settings.default_timeframe,
-                        candle_limit=settings.market_data_candle_limit,
-                    )
-                    logger.info(
-                        "Market deterministic pipeline completed. Analyses: %d",
-                        len(state.market_analyses),
-                    )
-
-                if settings.market_pipeline_mode in (
-                    MarketPipelineMode.CREWAI,
-                    MarketPipelineMode.HYBRID,
-                ):
-                    logger.info("[1/3] Running Market Intelligence Crew...")
-                    market_result = market_crew.kickoff()
-                    logger.info(
-                        "Market Crew completed. Raw output length: %d", len(str(market_result))
-                    )
                 last_market_run = now
-                if settings.market_pipeline_mode != MarketPipelineMode.CREWAI:
-                    plan = _apply_market_data_gate(plan, state)
-            else:
-                logger.info("[1/3] Skipping Market Crew (interval not due)")
-
             if plan.run_strategy:
-                if settings.strategy_pipeline_mode in (
-                    StrategyPipelineMode.DETERMINISTIC,
-                    StrategyPipelineMode.HYBRID,
-                ):
-                    portfolio_snapshot = portfolio.model_copy(deep=True)
-                    state.signals = strategy_runner.evaluate(state.market_analyses)
-                    for sig in state.signals:
-                        analysis = state.market_analyses.get(sig.symbol)
-                        result = risk_pipeline.evaluate(sig, portfolio, analysis)
-                        state.risk_results.append(result)
-                        order_req = RiskPipeline.to_order_request(sig, result)
-                        if order_req is not None:
-                            state.order_requests.append(order_req)
-                            _apply_single_order_to_portfolio(portfolio, order_req)
-                        db_service.save_signal(sig, risk_verdict=result.verdict.value)
-                    portfolio.update_peak()
-                    logger.info(
-                        "Strategy deterministic pipeline: %d signals, "
-                        "%d risk-approved, %d order requests",
-                        len(state.signals),
-                        len([r for r in state.risk_results if r.is_approved]),
-                        len(state.order_requests),
-                    )
-                    if state.order_requests:
-                        logger.info(
-                            "Portfolio (tentative): balance=%.2f, positions=%d, exposure=%.1f%%",
-                            portfolio.balance_quote,
-                            len(portfolio.positions),
-                            portfolio.exposure_pct,
-                        )
-
-                if settings.strategy_pipeline_mode in (
-                    StrategyPipelineMode.CREWAI,
-                    StrategyPipelineMode.HYBRID,
-                ):
-                    logger.info("[2/3] Running Strategy Crew...")
-                    strategy_result = strategy_crew.kickoff()
-                    strategy_len = len(str(strategy_result))
-                    logger.info("Strategy Crew completed. Raw output length: %d", strategy_len)
                 last_strategy_run = now
-            else:
-                if budget_state.degrade_level in (
-                    BudgetDegradeLevel.STRATEGY_OFF,
-                    BudgetDegradeLevel.HARD_STOP,
-                ):
-                    logger.info("[2/3] Skipping Strategy Crew (disabled by daily token budget)")
-                else:
-                    logger.info("[2/3] Skipping Strategy Crew (interval not due)")
-
             if plan.run_execution:
-                try:
-                    logger.info("[3/3] Running Execution pipeline...")
-
-                    if settings.execution_pipeline_mode in (
-                        ExecutionPipelineMode.DETERMINISTIC,
-                        ExecutionPipelineMode.HYBRID,
-                    ):
-                        exec_result = execution_service.process_order_requests(
-                            state.order_requests, portfolio
-                        )
-                        poll_result = execution_service.poll_and_reconcile(portfolio)
-
-                        state.orders = exec_result.placed + poll_result.placed
-                        state.filled_orders = exec_result.filled + poll_result.filled
-                        state.cancelled_orders = exec_result.cancelled + poll_result.cancelled
-                        state.failed_orders = [f.as_dict() for f in exec_result.failed + poll_result.failed]
-
-                        logger.info(
-                            "Execution deterministic pipeline: placed=%d, filled=%d, "
-                            "cancelled=%d, failed=%d",
-                            len(state.orders),
-                            len(state.filled_orders),
-                            len(state.cancelled_orders),
-                            len(state.failed_orders),
-                        )
-                        if state.filled_orders:
-                            logger.info(
-                                "Portfolio (post-fill): balance=%.4f, positions=%d, "
-                                "realized_pnl=%.4f",
-                                portfolio.balance_quote,
-                                len(portfolio.positions),
-                                portfolio.realized_pnl,
-                            )
-
-                    if settings.execution_pipeline_mode in (
-                        ExecutionPipelineMode.CREWAI,
-                        ExecutionPipelineMode.HYBRID,
-                    ):
-                        logger.info("[3/3] Running Execution Crew (CrewAI)...")
-                        crew_result = execution_crew.kickoff()
-                        logger.info(
-                            "Execution Crew completed. Raw output length: %d",
-                            len(str(crew_result)),
-                        )
-
-                    last_execution_run = now
-                    portfolio_snapshot = None  # fills confirmed — no rollback needed
-
-                except Exception:
-                    logger.exception("Execution pipeline failed")
-                    _rollback_portfolio(portfolio, portfolio_snapshot, state)
-                    portfolio_snapshot = None
-                    notification_service.notify_error(
-                        "Execution pipeline failed — reservations rolled back"
-                    )
-            else:
-                _rollback_portfolio(portfolio, portfolio_snapshot, state)
-                portfolio_snapshot = None
-                open_orders_label = (
-                    str(plan.open_orders_count)
-                    if plan.open_orders_count is not None
-                    else "n/a (not checked)"
-                )
-                logger.info(
-                    "[3/3] Skipping Execution pipeline (interval not due or no open orders: %s)",
-                    open_orders_label,
-                )
-                # Even when skipping new placements, poll open orders to keep
-                # portfolio state in sync (runs at no LLM cost).
-                if (
-                    budget_state.degrade_level == BudgetDegradeLevel.HARD_STOP
-                    and settings.non_llm_monitor_on_hard_stop
-                ):
-                    logger.info("Hard-stop: running deterministic order poll only")
-                    try:
-                        execution_service.poll_and_reconcile(portfolio)
-                    except Exception:
-                        logger.exception("Hard-stop order poll failed")
+                last_execution_run = now
 
             _accumulate_estimated_tokens(
                 settings,
@@ -794,14 +656,10 @@ def main() -> None:
                     budget_state.degrade_level.value,
                 )
 
-            logger.info(state.summary)
-
         except KeyboardInterrupt:
             break
         except Exception:
             logger.exception("Error in trading cycle %d", cycle)
-            _rollback_portfolio(portfolio, portfolio_snapshot, state)
-            state.errors.append(f"Cycle {cycle} failed")
             notification_service.notify_error(f"Error in cycle {cycle}")
 
         if not _shutdown_requested:
@@ -810,6 +668,11 @@ def main() -> None:
 
     # -- Shutdown -------------------------------------------------------------
     logger.info("Shutting down gracefully...")
+    try:
+        db_service.save_portfolio(portfolio)
+        logger.info("Final portfolio state persisted.")
+    except Exception:
+        logger.exception("Failed to persist portfolio on shutdown")
     notification_service.notify("Trading Crew stopped.")
     logger.info("Goodbye.")
 
