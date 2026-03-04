@@ -36,6 +36,8 @@ and they collaborate through structured crews.
   simple interface
 - **Backtesting** — Validate strategies against historical data before risking
   real capital (see [Backtesting](#backtesting))
+- **Real-time Dashboard** — FastAPI + Next.js web UI with WebSocket live updates
+  for monitoring portfolio, orders, signals, and agent status (see [Dashboard](#dashboard))
 
 ## Quick Start
 
@@ -120,14 +122,49 @@ Fetch → Analyze → Signal → Risk Check → Execute → Monitor → Loop
   Phase 2 ──────┘          Phase 3 ────┘          Phase 4 (planned)
 ```
 
-> **Current status (v0.6.0 — Phase 6)**: Full trading loop runs as a `TradingFlow`
-> CrewAI Flow. All three crews (Market Intelligence, Strategy, Execution) are
-> wired together with circuit breakers, stop-loss monitoring, token budget
-> degradation, and cycle history persistence. A self-contained backtesting engine
-> lets you validate strategies against historical OHLCV data with zero look-ahead
-> bias before risking real capital.
+> **Current status (v0.7.0 — Phase 7)**: Full trading loop runs as a `TradingFlow`
+> CrewAI Flow with circuit breakers, stop-loss monitoring, token budget degradation,
+> and cycle history persistence. A self-contained backtesting engine validates
+> strategies against historical data. A FastAPI + Next.js dashboard exposes
+> real-time observability via WebSocket live updates.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
+
+## Dashboard
+
+The dashboard runs as a separate process alongside the trading loop, reading from the same SQLite database:
+
+```bash
+# Install Python + Node dependencies:
+make dashboard-install
+
+# Start the FastAPI backend (port 8000):
+make dashboard-api
+
+# In a second terminal, start the Next.js UI (port 3000):
+make dashboard-ui
+```
+
+Open [http://localhost:3000](http://localhost:3000) to view the dashboard.
+
+### Pages
+
+| Page | Content |
+|------|---------|
+| Overview | Balance, P&L, open positions, last cycle, circuit breaker alert, agent grid |
+| Orders | Recent orders with status filters, failed orders, per-position P&L cards |
+| Signals | Signal feed with strategy tags and confidence bars |
+| History | Equity curve, strategy breakdown table, cycle history |
+| Agents | Per-agent pipeline mode, last activity, estimated tokens |
+| Backtest | Form to run a backtest over stored OHLCV data and view trade table |
+
+### WebSocket live updates
+
+The FastAPI server polls the database every 3 seconds and pushes `cycle_complete`, `order_filled`, `signal_generated`, and `circuit_breaker` events to connected clients. React Query invalidates the relevant queries on each event so the UI stays current without polling.
+
+### Optional API key
+
+Set `DASHBOARD_API_KEY=<secret>` in your `.env` to require an `X-API-Key` header on all REST requests.
 
 ## Configuration
 

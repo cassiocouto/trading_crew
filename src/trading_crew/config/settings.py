@@ -68,6 +68,14 @@ class StopLossMethod(StrEnum):
     ATR = "atr"
 
 
+class TelegramNotifyLevel(StrEnum):
+    """Which events trigger a Telegram alert."""
+
+    ALL = "all"
+    TRADES_ONLY = "trades_only"
+    CRITICAL_ONLY = "critical_only"
+
+
 class Settings(BaseSettings):
     """Central application configuration.
 
@@ -155,6 +163,17 @@ class Settings(BaseSettings):
     # -- Flow orchestration (Phase 5) -----------------------------------------
     save_cycle_history: bool = True
     stop_loss_monitoring_enabled: bool = True
+
+    # -- Dashboard (Phase 7) --------------------------------------------------
+    dashboard_enabled: bool = True
+    dashboard_host: str = "0.0.0.0"
+    dashboard_port: int = 8000
+    dashboard_cors_origins: list[str] = Field(default=["http://localhost:3000"])
+    dashboard_api_key: str = ""
+    dashboard_ws_poll_interval_seconds: int = Field(default=3, ge=1, le=60)
+
+    # -- Telegram alert level (Phase 7) ---------------------------------------
+    telegram_notify_level: TelegramNotifyLevel = TelegramNotifyLevel.TRADES_ONLY
 
     # -- Logging --------------------------------------------------------------
     log_level: str = "INFO"

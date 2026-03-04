@@ -1,4 +1,4 @@
-.PHONY: install dev lint type-check test test-unit test-integration backtest backtest-run backtest-data format pre-commit docs clean
+.PHONY: install dev lint type-check test test-unit test-integration backtest backtest-run backtest-data format pre-commit docs clean dashboard-api dashboard-ui dashboard-install
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -104,6 +104,20 @@ docs-serve:  ## Serve docs locally with hot reload
 clean:  ## Remove build artifacts, caches, and temp files
 	rm -rf dist/ build/ *.egg-info .ruff_cache/ .mypy_cache/ htmlcov/ .coverage site/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Dashboard (Phase 7)
+# ---------------------------------------------------------------------------
+
+dashboard-install:  ## Install dashboard Python + Node deps
+	uv sync --extra dashboard
+	cd dashboard && npm install
+
+dashboard-api:  ## Start FastAPI dashboard server (port 8000)
+	uv run python scripts/dashboard.py
+
+dashboard-ui:  ## Start Next.js dev server (port 3000, requires Node)
+	cd dashboard && npm run dev
 
 help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'

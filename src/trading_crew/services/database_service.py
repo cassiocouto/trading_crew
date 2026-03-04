@@ -566,6 +566,19 @@ class DatabaseService:
             portfolio.balance_quote,
         )
 
+    def get_latest_cycle(self) -> CycleRecord | None:
+        """Return the most recently completed cycle record, or None if empty.
+
+        The returned instance is expunged from its session so callers can read
+        its attributes after the session closes.
+        """
+        with get_session(self._engine) as session:
+            stmt = select(CycleRecord).order_by(CycleRecord.id.desc()).limit(1)
+            record = session.execute(stmt).scalar_one_or_none()
+            if record is not None:
+                session.expunge(record)
+            return record
+
     # -- Helpers --------------------------------------------------------------
 
     @staticmethod

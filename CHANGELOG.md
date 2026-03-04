@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 7: Dashboard and Observability (v0.7.0)
+- **FastAPI dashboard backend** (`src/trading_crew/api/`) — read-only REST API and WebSocket endpoint running as a separate process that shares the same SQLite database via WAL mode; no modifications to the trading loop required
+- **7 REST API routers** — `portfolio` (snapshot + history), `orders` (with filtering), `signals` (with strategy filter), `cycles`, `system`, `agents`, and `backtest` endpoints
+- **WebSocket live updates** (`/ws/events`) — server-side DB polling every 3 s detects new rows via ID watermarks and broadcasts `cycle_complete`, `order_filled`, `signal_generated`, and `circuit_breaker` events to all connected clients; React Query cache is invalidated on each event
+- **Agent observability** (`GET /api/agents/`) — per-agent pipeline mode, last activity timestamp, estimated token usage, and active status; derived from settings and the latest `CycleRecord` (no cross-process CrewAI tracing required)
+- **Strategy performance stats** (`GET /api/signals/strategy-stats`) — two separate `GROUP BY` queries on `TradeSignalRecord` and `OrderRecord` merged in Python by `strategy_name`, providing total signals, buy/sell split, avg confidence, orders placed, and fill rate
+- **Next.js dashboard frontend** (`dashboard/`) — TypeScript, Tailwind CSS, Recharts, React Query; 6 pages: Overview, Orders, Signals, History, Agents, Backtest; `useWebSocket` hook with auto-reconnect; sidebar navigation and dark-safe styling
+- **SQLite WAL concurrency** — FastAPI engine configured with `PRAGMA journal_mode=WAL` and `busy_timeout=5000`; backtest endpoint is purely read-only to eliminate write contention
+- **Non-blocking backtest endpoint** — `POST /api/backtest/run` is a synchronous `def` handler so FastAPI automatically offloads it to a threadpool executor, keeping the async event loop free
+- **`TelegramNotifyLevel` StrEnum** in `settings.py` with values `ALL`, `TRADES_ONLY`, `CRITICAL_ONLY`; `telegram_notify_level` setting defaults to `TRADES_ONLY`
+- **Structured Telegram alert methods** — `notify_order_filled`, `notify_stop_loss_triggered`, `notify_circuit_breaker_activated`, `notify_cycle_summary`; each respects the configured notify level
+- **`dashboard_*` settings** — `dashboard_enabled`, `dashboard_host`, `dashboard_port`, `dashboard_cors_origins`, `dashboard_api_key`, `dashboard_ws_poll_interval_seconds`; optional API key authentication middleware
+- **`DatabaseService.get_latest_cycle()`** — returns the most recent `CycleRecord` (expunged from session so callers can read attributes after session close)
+- **`scripts/dashboard.py`** — uvicorn launcher with `--host`, `--port`, `--reload`, `--log-level` CLI flags
+- **`make dashboard-api`**, **`make dashboard-ui`**, **`make dashboard-install`** Makefile targets
+- **36 new unit tests** in `tests/unit/test_dashboard_api.py` — `TestPortfolioEndpoints`, `TestOrderEndpoints`, `TestSignalEndpoints`, `TestCycleEndpoints`, `TestSystemStatus`, `TestAgentsEndpoint`, `TestBacktestEndpoint`, `TestAuth`, `TestNotificationService`, `TestWebSocket`; all using FastAPI `TestClient` with in-memory SQLite via `StaticPool`
+- Version bumped to `v0.7.0`
+
 #### Phase 6: Backtesting Engine (v0.6.0)
 - **BacktestService** — self-contained simulation engine that feeds historical OHLCV data through `TechnicalAnalyzer → StrategyRunner → RiskPipeline` (the same pipeline as live trading); guarantees zero look-ahead bias by only exposing candles `[0..i]` at step `i`
 - **Simulated fills** — MARKET orders fill at next-candle open ± configurable slippage; fees deducted from portfolio balance on every fill; stop-losses fill at `stop_loss_price` with no additional slippage

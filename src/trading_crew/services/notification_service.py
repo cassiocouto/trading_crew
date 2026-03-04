@@ -2,6 +2,11 @@
 
 Supports Telegram (primary) and extensible to webhooks, email, etc.
 Gracefully degrades when credentials are not configured.
+
+Notification levels (controlled by ``TelegramNotifyLevel`` in settings):
+  - ``critical_only``: circuit-breaker and error alerts only
+  - ``trades_only``:   trade fills + stop-losses + critical alerts
+  - ``all``:           every event including per-cycle summaries
 """
 
 from __future__ import annotations
@@ -61,8 +66,13 @@ class NotificationService:
         service.notify("Trade executed: BUY 0.01 BTC @ $60,000")
     """
 
-    def __init__(self, channels: list[NotificationChannel] | None = None) -> None:
+    def __init__(
+        self,
+        channels: list[NotificationChannel] | None = None,
+        notify_level: str = "trades_only",
+    ) -> None:
         self._channels: list[NotificationChannel] = channels or []
+        self._notify_level = notify_level
 
     @classmethod
     def from_settings(cls) -> NotificationService:
@@ -78,7 +88,7 @@ class NotificationService:
         else:
             logger.info("Telegram not configured — notifications disabled")
 
-        return cls(channels)
+        return cls(channels, notify_level=settings.telegram_notify_level)
 
     def notify(self, message: str) -> None:
         """Send a message to all configured channels.
@@ -99,6 +109,43 @@ class NotificationService:
     def notify_error(self, error: str) -> None:
         """Send an error alert."""
         self.notify(f"*ERROR*: {error}")
+
+    # -- Structured notify methods (Phase 7) ----------------------------------
+
+    def notify_order_filled(
+        self, symbol: str, side: str, amount: float, price: float, pnl: float
+    ) -> None:
+        """Alert when an order is filled. Sent at ``trades_only`` level and above."""
+        if self._notify_level == "critical_only":
+            return
+        direction = "BUY" if side.lower() == "buy" else "SELL"
+        pnl_str = f"  PnL: {pnl:+.2f}" if side.lower() == "sell" else ""
+        self.notify(f"*{direction} FILLED* {amount:.6f} {symbol} @ {price:,.2f}{pnl_str}")
+
+    def notify_stop_loss_triggered(self, symbol: str, price: float, pnl: float) -> None:
+        """Alert when a stop-loss is triggered. Sent at ``trades_only`` level and above."""
+        if self._notify_level == "critical_only":
+            return
+        self.notify(f"*STOP-LOSS* {symbol} @ {price:,.2f}  PnL: {pnl:+.2f}")
+
+    def notify_circuit_breaker_activated(self, reason: str) -> None:
+        """Alert when the circuit breaker trips. Always sent (``critical_only`` and above)."""
+        self.notify(f"*CIRCUIT BREAKER ACTIVATED*\n{reason}")
+
+    def notify_cycle_summary(
+        self,
+        cycle_number: int,
+        balance: float,
+        realized_pnl: float,
+        num_fills: int,
+    ) -> None:
+        """Per-cycle summary. Only sent at ``all`` level."""
+        if self._notify_level != "all":
+            return
+        self.notify(
+            f"*Cycle {cycle_number}* | Balance: {balance:,.2f}"
+            f" | PnL: {realized_pnl:+.2f} | Fills: {num_fills}"
+        )
 
     @property
     def has_channels(self) -> bool:
