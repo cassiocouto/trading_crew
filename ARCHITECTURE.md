@@ -60,14 +60,19 @@ src/trading_crew/
 A single trading cycle follows this path:
 
 ```
-1. FETCH      Sentinel Agent pulls tickers/OHLCV from exchanges via CCXT
+1. FETCH      Sentinel / MarketIntelligenceService pulls tickers/OHLCV
+              from exchanges via CCXT and stores in DB        (Phase 2)
                  ↓
-2. ANALYZE    Analyst Agent computes indicators (EMA, RSI, Bollinger, etc.)
+2. ANALYZE    TechnicalAnalyzer computes indicators (EMA, RSI, BB, MACD, ATR)
+              and classifies market regime → MarketAnalysis    (Phase 2)
                  ↓
-3. SIGNAL     Strategist Agent runs strategies → produces TradeSignal(s)
+3. SIGNAL     StrategyRunner runs EMA Crossover, Bollinger Bands, RSI Range
+              (individual or ensemble) → TradeSignal(s)        (Phase 3)
                  ↓
-4. RISK       Risk Manager validates signal against portfolio limits,
-              calculates position size, sets stop-loss
+4. RISK       RiskPipeline validates each signal: confidence filter,
+              circuit breaker, position sizing, stop-loss (fixed/ATR),
+              portfolio limits, concentration limits → RiskCheckResult
+              → OrderRequest if approved                       (Phase 3)
                  ↓
 5. EXECUTE    Executor Agent places order (paper or live via CCXT)
                  ↓
@@ -76,6 +81,10 @@ A single trading cycle follows this path:
                  ↓
 7. LOOP       Flow Engine carries state forward → back to step 1
 ```
+
+Steps 1-4 are deterministic (no LLM required) when `MARKET_PIPELINE_MODE` and
+`STRATEGY_PIPELINE_MODE` are set to `deterministic`. The CrewAI agents remain
+available in `crewai` or `hybrid` modes for comparison/experimentation.
 
 ## Scheduling and Budget Policy
 
@@ -145,15 +154,34 @@ class ExchangeService:
     async def cancel_order(self, order_id: str, symbol: str) -> None: ...
 ```
 
-### Risk Pipeline (risk/)
+### StrategyRunner (services/strategy_runner.py)
 
-Every signal passes through a risk pipeline before execution:
+Deterministic strategy execution engine that runs all registered strategies
+against MarketAnalysis data:
+
+```python
+class StrategyRunner:
+    def evaluate(self, analyses: dict[str, MarketAnalysis]) -> list[TradeSignal]: ...
+```
+
+Supports two modes:
+- **Individual**: each strategy runs independently, all actionable signals pass forward
+- **Ensemble**: strategies vote per symbol; consensus signal produced only when the
+  agreement threshold is met
+
+### RiskPipeline (services/risk_pipeline.py)
+
+Every signal passes through a deterministic risk pipeline before execution:
 
 ```
-TradeSignal → PositionSizer → StopLoss → PortfolioLimits → CircuitBreaker → OrderRequest
+TradeSignal → confidence filter → CircuitBreaker → PositionSizer
+→ StopLoss → PortfolioLimits → ConcentrationLimits → RiskCheckResult
 ```
 
-If any stage rejects the signal, the order is not placed.
+If any stage rejects the signal, the pipeline short-circuits. Approved signals
+produce `OrderRequest` objects ready for the Execution Crew.
+
+Stop-loss can be configured as fixed percentage or ATR-based (adapts to volatility).
 
 ## Configuration
 

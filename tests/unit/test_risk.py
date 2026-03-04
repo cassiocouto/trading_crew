@@ -18,27 +18,30 @@ class TestPositionSizer:
         portfolio = Portfolio(balance_quote=10000.0)
         params = RiskParams(risk_per_trade_pct=2.0, default_stop_loss_pct=3.0)
 
-        size = calculate_position_size(
+        result = calculate_position_size(
             portfolio=portfolio,
             entry_price=60000.0,
             stop_loss_price=58200.0,
             risk_params=params,
         )
-        assert size > 0
-        assert size <= 10000.0
+        assert result.value > 0
+        assert result.value <= 10000.0
+        assert result.risk_based_value >= result.value
 
     def test_zero_balance(self) -> None:
         portfolio = Portfolio(balance_quote=0.0)
         params = RiskParams()
-        size = calculate_position_size(portfolio, 60000.0, 58000.0, params)
-        assert size == 0.0
+        result = calculate_position_size(portfolio, 60000.0, 58000.0, params)
+        assert result.value == 0.0
+        assert not result.was_capped
 
     def test_respects_max_position_size(self) -> None:
         portfolio = Portfolio(balance_quote=100000.0)
         params = RiskParams(max_position_size_pct=5.0, risk_per_trade_pct=50.0)
 
-        size = calculate_position_size(portfolio, 60000.0, 58000.0, params)
-        assert size <= 5000.0
+        result = calculate_position_size(portfolio, 60000.0, 58000.0, params)
+        assert result.value <= 5000.0
+        assert result.was_capped
 
 
 @pytest.mark.unit

@@ -45,6 +45,21 @@ class MarketPipelineMode(StrEnum):
     HYBRID = "hybrid"
 
 
+class StrategyPipelineMode(StrEnum):
+    """How the strategy/risk pipeline should execute each due cycle."""
+
+    CREWAI = "crewai"
+    DETERMINISTIC = "deterministic"
+    HYBRID = "hybrid"
+
+
+class StopLossMethod(StrEnum):
+    """How stop-loss prices are calculated."""
+
+    FIXED = "fixed"
+    ATR = "atr"
+
+
 class Settings(BaseSettings):
     """Central application configuration.
 
@@ -97,6 +112,14 @@ class Settings(BaseSettings):
     market_crew_interval_seconds: int = Field(default=900, ge=10)
     strategy_crew_interval_seconds: int = Field(default=1800, ge=10)
     execution_crew_interval_seconds: int = Field(default=900, ge=10)
+
+    # -- Strategy pipeline (Phase 3) ------------------------------------------
+    strategy_pipeline_mode: StrategyPipelineMode = StrategyPipelineMode.DETERMINISTIC
+    ensemble_enabled: bool = False
+    ensemble_agreement_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    stop_loss_method: StopLossMethod = StopLossMethod.FIXED
+    atr_stop_multiplier: float = Field(default=2.0, gt=0.0, le=10.0)
+    initial_balance_quote: float = Field(default=10_000.0, gt=0.0)
 
     # -- Market intelligence pipeline -----------------------------------------
     market_pipeline_mode: MarketPipelineMode = MarketPipelineMode.DETERMINISTIC

@@ -2,15 +2,20 @@
 
 Initializes all services and runs the trading loop.
 
-CURRENT STATUS (Phase 1 + Phase 2 Market Pipeline):
-  The CrewAI crews are structurally defined but the inter-crew data flow
-  currently relies on LLM-mediated text output. A typed CycleState DTO
-  is defined for deterministic handoff (see models/cycle.py) and will be
-  wired into a CrewAI Flow in Phase 5. Until then, crews run sequentially
-  and CycleState fields are not yet populated from crew outputs.
+CURRENT STATUS (Phase 1-3):
+  Phase 2 — deterministic market intelligence (fetch/analyze/store) populates
+  CycleState.market_analyses without LLM involvement.
 
-  Phase 2 deterministic market intelligence is available (fetch/analyze/store),
-  while full strategy/execution determinism (Phases 3-4) remains in progress.
+  Phase 3 — deterministic strategy pipeline (StrategyRunner + RiskPipeline)
+  populates CycleState.signals, risk_results, and order_requests. Strategies
+  run against MarketAnalysis data produced by Phase 2, and signals pass
+  through the full risk pipeline (confidence filter, circuit breaker,
+  position sizing, stop-loss, portfolio limits).
+
+  The CrewAI crews remain available in CREWAI/HYBRID modes. In DETERMINISTIC
+  mode, the corresponding crew is skipped entirely.
+
+  Phase 4 (Execution Crew) and Phase 5 (CrewAI Flow) remain planned.
 
 Usage:
     trading-crew              # via installed script
@@ -40,6 +45,7 @@ from trading_crew.agents.strategist import create_strategist_agent
 from trading_crew.config.settings import (
     MarketPipelineMode,
     Settings,
+    StrategyPipelineMode,
     TokenBudgetDegradeMode,
     get_settings,
 )
@@ -48,12 +54,19 @@ from trading_crew.crews.market_crew import MarketCrew
 from trading_crew.crews.strategy_crew import StrategyCrew
 from trading_crew.db.session import get_engine, init_db
 from trading_crew.models.cycle import CycleState
+from trading_crew.models.order import OrderRequest, OrderSide
+from trading_crew.models.portfolio import Portfolio, Position
 from trading_crew.risk.circuit_breaker import CircuitBreaker
 from trading_crew.services.database_service import DatabaseService
 from trading_crew.services.exchange_service import ExchangeService
 from trading_crew.services.market_intelligence_service import MarketIntelligenceService
 from trading_crew.services.notification_service import NotificationService
+from trading_crew.services.risk_pipeline import RiskPipeline
 from trading_crew.services.sentiment_service import SentimentService
+from trading_crew.services.strategy_runner import StrategyRunner
+from trading_crew.strategies.bollinger import BollingerBandsStrategy
+from trading_crew.strategies.ema_crossover import EMACrossoverStrategy
+from trading_crew.strategies.rsi_range import RSIRangeStrategy
 
 logger = logging.getLogger("trading_crew")
 
@@ -338,6 +351,105 @@ def _apply_market_data_gate(plan: RunPlan, state: CycleState) -> RunPlan:
     return plan
 
 
+def _apply_single_order_to_portfolio(
+    portfolio: Portfolio,
+    req: OrderRequest,
+) -> None:
+    """Reserve capital for one approved order request.
+
+    BUY: deduct notional from balance and add a proportionally-sized position.
+    When balance is insufficient to cover the full notional, both the deduction
+    and the booked amount are scaled down so market-value never exceeds the
+    capital actually reserved.
+
+    SELL: credit notional ONLY if a position exists to sell; capped at held
+    amount to prevent phantom-cash creation (no short-selling model yet).
+
+    These are tentative reservations — actual fill reconciliation will
+    replace them in Phase 4 (Execution Crew).
+    """
+    price = req.price or 0.0
+    notional = req.amount * price
+
+    if req.side == OrderSide.BUY:
+        affordable_notional = min(notional, portfolio.balance_quote)
+        if affordable_notional <= 0:
+            return
+        portfolio.balance_quote -= affordable_notional
+
+        buy_amount = (
+            affordable_notional / price if price > 0 else 0.0
+        )
+        if buy_amount <= 0:
+            return
+
+        if req.symbol in portfolio.positions:
+            pos = portfolio.positions[req.symbol]
+            total_amount = pos.amount + buy_amount
+            avg_price = (
+                (pos.entry_price * pos.amount + price * buy_amount)
+                / total_amount
+            )
+            portfolio.positions[req.symbol] = pos.model_copy(
+                update={
+                    "amount": total_amount,
+                    "entry_price": avg_price,
+                    "current_price": price or pos.current_price,
+                }
+            )
+        else:
+            portfolio.positions[req.symbol] = Position(
+                symbol=req.symbol,
+                exchange=req.exchange,
+                entry_price=price,
+                amount=buy_amount,
+                current_price=price,
+                stop_loss_price=req.stop_loss_price,
+                take_profit_price=req.take_profit_price,
+                strategy_name=req.strategy_name,
+            )
+
+    elif req.side == OrderSide.SELL:
+        if req.symbol not in portfolio.positions:
+            logger.warning(
+                "SELL order for %s ignored — no position held", req.symbol
+            )
+            return
+        pos = portfolio.positions[req.symbol]
+        sell_amount = min(req.amount, pos.amount)
+        sell_notional = sell_amount * price
+        portfolio.balance_quote += sell_notional
+        remaining = pos.amount - sell_amount
+        if remaining <= 0:
+            del portfolio.positions[req.symbol]
+        else:
+            portfolio.positions[req.symbol] = pos.model_copy(
+                update={"amount": remaining}
+            )
+
+
+def _rollback_portfolio(
+    portfolio: Portfolio,
+    snapshot: Portfolio | None,
+    state: CycleState,
+) -> None:
+    """Restore portfolio from snapshot if tentative reservations were applied.
+
+    Called when execution is skipped or fails, so unconfirmed order requests
+    don't pollute risk state for the next cycle.
+    """
+    if snapshot is None or not state.order_requests:
+        return
+    portfolio.balance_quote = snapshot.balance_quote
+    portfolio.positions = snapshot.positions
+    portfolio.peak_balance = snapshot.peak_balance
+    logger.info(
+        "Rolled back tentative portfolio reservations "
+        "(%d order requests discarded)",
+        len(state.order_requests),
+    )
+
+
 def main() -> None:
     """Main entry point — initialize services and run the scaffold trading loop."""
     settings = get_settings()
@@ -356,6 +468,14 @@ def main() -> None:
         settings.market_regime_trend_threshold,
     )
     logger.info("Sentiment enrichment enabled: %s", settings.sentiment_enabled)
+    logger.info("Strategy pipeline mode: %s", settings.strategy_pipeline_mode.value)
+    logger.info("Ensemble mode: %s", settings.ensemble_enabled)
+    logger.info(
+        "Stop-loss method: %s (ATR multiplier=%.1f)",
+        settings.stop_loss_method.value,
+        settings.atr_stop_multiplier,
+    )
+    logger.info("Initial balance: %.2f", settings.initial_balance_quote)
     logger.info("Cost contention mode: %s", settings.cost_contention_enabled)
     if settings.cost_contention_enabled:
         logger.info(
@@ -421,6 +541,30 @@ def main() -> None:
     notification_service = NotificationService.from_settings()
     circuit_breaker = CircuitBreaker(settings.risk)
 
+    # -- Strategy + Risk pipeline (Phase 3) -----------------------------------
+    strategies = [
+        EMACrossoverStrategy(),
+        BollingerBandsStrategy(),
+        RSIRangeStrategy(),
+    ]
+    strategy_runner = StrategyRunner(
+        strategies=strategies,
+        min_confidence=settings.risk.min_confidence,
+        ensemble=settings.ensemble_enabled,
+        ensemble_agreement_threshold=settings.ensemble_agreement_threshold,
+    )
+    logger.info("Strategies loaded: %s", ", ".join(strategy_runner.strategy_names))
+    risk_pipeline = RiskPipeline(
+        risk_params=settings.risk,
+        circuit_breaker=circuit_breaker,
+        stop_loss_method=settings.stop_loss_method.value,
+        atr_stop_multiplier=settings.atr_stop_multiplier,
+    )
+    portfolio = Portfolio(
+        balance_quote=settings.initial_balance_quote,
+        peak_balance=settings.initial_balance_quote,
+    )
+
     # -- Load YAML configs ----------------------------------------------------
     agent_configs = _load_yaml(str(settings.agents_yaml_path))
     task_configs = _load_yaml(str(settings.tasks_yaml_path))
@@ -431,8 +575,15 @@ def main() -> None:
     )
     analyst = create_analyst_agent(agent_configs.get("analyst", {}))
     sentiment = create_sentiment_agent(agent_configs.get("sentiment", {}))
-    strategist = create_strategist_agent(agent_configs.get("strategist", {}))
-    risk_manager = create_risk_manager_agent(agent_configs.get("risk_manager", {}))
+    strategist = create_strategist_agent(
+        agent_configs.get("strategist", {}),
+        strategy_runner=strategy_runner,
+    )
+    risk_manager = create_risk_manager_agent(
+        agent_configs.get("risk_manager", {}),
+        risk_pipeline=risk_pipeline,
+        portfolio=portfolio,
+    )
     executor = create_executor_agent(
         exchange_service, notification_service, agent_configs.get("executor", {})
     )
@@ -488,6 +639,8 @@ def main() -> None:
         logger.info("--- Cycle %d ---", cycle)
 
         try:
+            portfolio_snapshot: Portfolio | None = None
+
             if circuit_breaker.is_tripped:
                 logger.warning("Circuit breaker is tripped: %s", circuit_breaker.trip_reason)
                 logger.warning("Skipping cycle. Manual reset required.")
@@ -538,10 +691,46 @@ def main() -> None:
                 logger.info("[1/3] Skipping Market Crew (interval not due)")
 
             if plan.run_strategy:
-                logger.info("[2/3] Running Strategy Crew...")
-                strategy_result = strategy_crew.kickoff()
-                strategy_len = len(str(strategy_result))
-                logger.info("Strategy Crew completed. Raw output length: %d", strategy_len)
+                if settings.strategy_pipeline_mode in (
+                    StrategyPipelineMode.DETERMINISTIC,
+                    StrategyPipelineMode.HYBRID,
+                ):
+                    portfolio_snapshot = portfolio.model_copy(deep=True)
+                    state.signals = strategy_runner.evaluate(state.market_analyses)
+                    for sig in state.signals:
+                        analysis = state.market_analyses.get(sig.symbol)
+                        result = risk_pipeline.evaluate(sig, portfolio, analysis)
+                        state.risk_results.append(result)
+                        order_req = RiskPipeline.to_order_request(sig, result)
+                        if order_req is not None:
+                            state.order_requests.append(order_req)
+                            _apply_single_order_to_portfolio(portfolio, order_req)
+                        db_service.save_signal(sig, risk_verdict=result.verdict.value)
+                    portfolio.update_peak()
+                    logger.info(
+                        "Strategy deterministic pipeline: %d signals, "
+                        "%d risk-approved, %d order requests",
+                        len(state.signals),
+                        len([r for r in state.risk_results if r.is_approved]),
+                        len(state.order_requests),
+                    )
+                    if state.order_requests:
+                        logger.info(
+                            "Portfolio (tentative): balance=%.2f, "
+                            "positions=%d, exposure=%.1f%%",
+                            portfolio.balance_quote,
+                            len(portfolio.positions),
+                            portfolio.exposure_pct,
+                        )
+
+                if settings.strategy_pipeline_mode in (
+                    StrategyPipelineMode.CREWAI,
+                    StrategyPipelineMode.HYBRID,
+                ):
+                    logger.info("[2/3] Running Strategy Crew...")
+                    strategy_result = strategy_crew.kickoff()
+                    strategy_len = len(str(strategy_result))
+                    logger.info("Strategy Crew completed. Raw output length: %d", strategy_len)
                 last_strategy_run = now
             else:
                 if budget_state.degrade_level in (
@@ -553,12 +742,21 @@ def main() -> None:
                     logger.info("[2/3] Skipping Strategy Crew (interval not due)")
 
             if plan.run_execution:
-                logger.info("[3/3] Running Execution Crew...")
-                execution_result = execution_crew.kickoff()
-                execution_len = len(str(execution_result))
-                logger.info("Execution Crew completed. Raw output length: %d", execution_len)
-                last_execution_run = now
+                try:
+                    logger.info("[3/3] Running Execution Crew...")
+                    execution_result = execution_crew.kickoff()
+                    execution_len = len(str(execution_result))
+                    logger.info("Execution Crew completed. Raw output length: %d", execution_len)
+                    last_execution_run = now
+                    portfolio_snapshot = None
+                except Exception:
+                    logger.exception("Execution Crew failed")
+                    _rollback_portfolio(portfolio, portfolio_snapshot, state)
+                    portfolio_snapshot = None
+                    notification_service.notify_error("Execution Crew failed — reservations rolled back")
             else:
+                _rollback_portfolio(portfolio, portfolio_snapshot, state)
+                portfolio_snapshot = None
                 open_orders_label = (
                     str(plan.open_orders_count)
                     if plan.open_orders_count is not None
@@ -597,6 +795,7 @@ def main() -> None:
             break
         except Exception:
             logger.exception("Error in trading cycle %d", cycle)
+            _rollback_portfolio(portfolio, portfolio_snapshot, state)
             state.errors.append(f"Cycle {cycle} failed")
             notification_service.notify_error(f"Error in cycle {cycle}")
 

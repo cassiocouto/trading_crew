@@ -7,6 +7,7 @@ parameters and portfolio state.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,12 +17,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class PositionSizeResult:
+    """Result of position size calculation.
+
+    Attributes:
+        value: Final capped position size in quote currency.
+        risk_based_value: Uncapped size derived purely from risk-per-trade.
+        was_capped: True when max_position or available balance reduced the size.
+    """
+
+    value: float
+    risk_based_value: float
+    was_capped: bool
+
+
 def calculate_position_size(
     portfolio: Portfolio,
     entry_price: float,
     stop_loss_price: float | None,
     risk_params: RiskParams,
-) -> float:
+) -> PositionSizeResult:
     """Calculate the position size in quote currency.
 
     Uses the risk-per-trade method: risk a fixed percentage of the portfolio
@@ -35,11 +51,12 @@ def calculate_position_size(
         risk_params: Risk configuration.
 
     Returns:
-        Position size in quote currency (e.g. USDT amount to spend).
+        PositionSizeResult with the final size, uncapped risk-based size,
+        and whether the size was capped.
     """
     available = portfolio.balance_quote
     if available <= 0:
-        return 0.0
+        return PositionSizeResult(value=0.0, risk_based_value=0.0, was_capped=False)
 
     risk_amount = available * (risk_params.risk_per_trade_pct / 100)
 
@@ -56,15 +73,21 @@ def calculate_position_size(
     position_from_risk = risk_amount / stop_loss_distance_pct
 
     position_size = min(position_from_risk, max_position, available)
+    was_capped = position_size < position_from_risk
 
     logger.debug(
         "Position size: risk_amount=%.2f, stop_distance=%.4f, "
-        "position_from_risk=%.2f, max=%.2f, final=%.2f",
+        "position_from_risk=%.2f, max=%.2f, final=%.2f, capped=%s",
         risk_amount,
         stop_loss_distance_pct,
         position_from_risk,
         max_position,
         position_size,
+        was_capped,
     )
 
-    return position_size
+    return PositionSizeResult(
+        value=position_size,
+        risk_based_value=position_from_risk,
+        was_capped=was_capped,
+    )

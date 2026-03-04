@@ -89,15 +89,17 @@ specialized **Agents**:
 | **Strategy** | Strategist, Risk Manager | Generate trade signals, validate against risk limits |
 | **Execution** | Executor, Monitor | Place orders, track fills, manage order lifecycle |
 
-A **CrewAI Flow** will orchestrate the crews in a continuous loop:
+Each phase adds deterministic (no-LLM) capability alongside the CrewAI agents:
 
 ```
 Fetch → Analyze → Signal → Risk Check → Execute → Monitor → Loop
+  Phase 2 ──────┘          Phase 3 ────┘          Phase 4 (planned)
 ```
 
-> **Phase 1 status**: The crew structure, agents, tools, models, and risk
-> pipeline are implemented. Inter-crew data flows through a typed `CycleState`
-> DTO. Full deterministic handoff via CrewAI Flows is planned for Phase 5.
+> **Current status (Phase 3)**: Market intelligence and strategy/risk pipelines
+> run deterministically by default. `CycleState` carries typed data across
+> phases: `market_analyses` → `signals` → `risk_results` → `order_requests`.
+> CrewAI agents remain available in `crewai` or `hybrid` mode.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
 
@@ -113,11 +115,12 @@ files. Key settings:
 | `EXCHANGE_SANDBOX` | `true` | Use exchange testnet |
 | `DATABASE_URL` | `sqlite:///trading_crew.db` | Database connection string |
 | `LOOP_INTERVAL_SECONDS` | `900` | Main loop cadence (15m default) |
+| `MARKET_PIPELINE_MODE` | `deterministic` | Market execution mode |
+| `STRATEGY_PIPELINE_MODE` | `deterministic` | Strategy execution mode |
+| `ENSEMBLE_ENABLED` | `false` | Enable ensemble voting across strategies |
+| `STOP_LOSS_METHOD` | `fixed` | `fixed` (%) or `atr` (volatility-adaptive) |
+| `INITIAL_BALANCE_QUOTE` | `10000` | Starting paper balance (quote currency) |
 | `COST_CONTENTION_ENABLED` | `true` | Enable cost-aware crew scheduling |
-| `MARKET_PIPELINE_MODE` | `deterministic` | Market execution mode (`deterministic`/`crewai`/`hybrid`) |
-| `MARKET_REGIME_VOLATILITY_THRESHOLD` | `0.03` | Regime volatile cutoff (`atr_14 / price`) |
-| `MARKET_REGIME_TREND_THRESHOLD` | `0.01` | Regime trending cutoff (`|ema_fast-ema_slow| / price`) |
-| `SENTIMENT_ENABLED` | `false` | Optional deterministic sentiment enrichment |
 | `DAILY_TOKEN_BUDGET_TOKENS` | `600000` | Estimated daily token budget cap |
 | `TOKEN_BUDGET_DEGRADE_MODE` | `strategy_only` | `off`, `strategy_only`, or `hard_stop` |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |

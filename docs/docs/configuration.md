@@ -38,6 +38,12 @@ YAML files for CrewAI agent/task definitions.
 | `MARKET_CREW_ESTIMATED_TOKENS` | `1500` | Estimated token cost per market crew run |
 | `STRATEGY_CREW_ESTIMATED_TOKENS` | `6000` | Estimated token cost per strategy crew run |
 | `EXECUTION_CREW_ESTIMATED_TOKENS` | `1000` | Estimated token cost per execution crew run |
+| `STRATEGY_PIPELINE_MODE` | `deterministic` | `deterministic`, `crewai`, or `hybrid` — strategy/risk execution mode |
+| `ENSEMBLE_ENABLED` | `false` | Run strategies as ensemble (weighted voting) rather than individual |
+| `ENSEMBLE_AGREEMENT_THRESHOLD` | `0.5` | Fraction of strategies that must agree for ensemble signal (0–1) |
+| `STOP_LOSS_METHOD` | `fixed` | `fixed` (percentage) or `atr` (ATR-based, adapts to volatility) |
+| `ATR_STOP_MULTIPLIER` | `2.0` | Number of ATRs used as stop distance when `STOP_LOSS_METHOD=atr` |
+| `INITIAL_BALANCE_QUOTE` | `10000` | Starting paper balance in quote currency (e.g. USDT) |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 ## Early Cost Contention Phase (default)
@@ -76,6 +82,37 @@ If `SENTIMENT_ENABLED=true`, deterministic sentiment is added to
 - `sentiment_score` in `[-1, 1]`
 - `sentiment_confidence` in `[0, 1]`
 - `sentiment_sources` (source names used in aggregation)
+
+### Phase 3 Strategy Pipeline
+
+Phase 3 introduces a deterministic strategy + risk pipeline:
+
+`MarketAnalysis -> StrategyRunner -> RiskPipeline -> OrderRequest`
+
+By default, `STRATEGY_PIPELINE_MODE=deterministic`, so signals are generated and
+risk-validated without LLM involvement. Set `hybrid` to run both deterministic and
+CrewAI strategy evaluation.
+
+#### Strategy modes
+
+- **Individual** (`ENSEMBLE_ENABLED=false`): each strategy (EMA Crossover, Bollinger
+  Bands, RSI Range) produces independent signals. All actionable signals above
+  `min_confidence` pass to the risk pipeline.
+- **Ensemble** (`ENSEMBLE_ENABLED=true`): strategies vote per symbol. A consensus
+  signal is produced only when `ENSEMBLE_AGREEMENT_THRESHOLD` fraction of strategies
+  agree on direction.
+
+#### Stop-loss methods
+
+- `fixed`: stop at `DEFAULT_STOP_LOSS_PCT` below/above entry price.
+- `atr`: stop at `ATR_STOP_MULTIPLIER * ATR(14)` from entry, adapting to current
+  volatility. Falls back to fixed when ATR is unavailable.
+
+#### Portfolio tracking
+
+The in-memory portfolio starts at `INITIAL_BALANCE_QUOTE` and is updated after
+each cycle's approved order requests. This ensures exposure and concentration
+checks remain accurate across cycles even before execution is wired (Phase 4).
 
 ### Daily Budget Degrade Mode
 
