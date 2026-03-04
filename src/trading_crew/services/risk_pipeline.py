@@ -105,16 +105,13 @@ class RiskPipeline:
                     verdict=RiskVerdict.REJECTED,
                     approved_amount=0.0,
                     reasons=[
-                        f"No open position for {signal.symbol}; "
-                        "short selling is not supported"
+                        f"No open position for {signal.symbol}; short selling is not supported"
                     ],
                     checks_passed=checks_passed,
                     checks_failed=["inventory"],
                 )
             checks_passed.append("inventory")
-            return self._evaluate_sell(
-                signal, portfolio, held, analysis, checks_passed, reasons
-            )
+            return self._evaluate_sell(signal, portfolio, held, analysis, checks_passed, reasons)
 
         return self._evaluate_buy(
             signal, portfolio, analysis, checks_passed, checks_failed, reasons
@@ -155,9 +152,7 @@ class RiskPipeline:
         verdict = RiskVerdict.APPROVED
         if sell_amount < held.amount:
             verdict = RiskVerdict.REDUCED
-            reasons.append(
-                f"Sell capped to {sell_amount:.6f} of {held.amount:.6f} held"
-            )
+            reasons.append(f"Sell capped to {sell_amount:.6f} of {held.amount:.6f} held")
 
         logger.info(
             "Risk %s: SELL %s amount=%.6f stop=%.2f (%s)",

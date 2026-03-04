@@ -37,9 +37,7 @@ def create_risk_manager_agent(
     if risk_pipeline is not None and portfolio is not None:
         from trading_crew.tools.risk_tool import EvaluateRiskTool
 
-        tools.append(
-            EvaluateRiskTool(risk_pipeline=risk_pipeline, portfolio=portfolio)
-        )
+        tools.append(EvaluateRiskTool(risk_pipeline=risk_pipeline, portfolio=portfolio))
 
     return Agent(
         role=agent_config.get("role", "Risk Manager"),

@@ -163,7 +163,9 @@ def _non_llm_open_order_probe(
             status = "error"
         normalized_status = _normalize_exchange_order_status(status)
         if normalized_status is not None:
-            db_service.update_order_status_by_exchange_id(order.exchange_order_id, normalized_status)
+            db_service.update_order_status_by_exchange_id(
+                order.exchange_order_id, normalized_status
+            )
             status = normalized_status
         status_counts[status] = status_counts.get(status, 0) + 1
         checked += 1
@@ -377,19 +379,14 @@ def _apply_single_order_to_portfolio(
             return
         portfolio.balance_quote -= affordable_notional
 
-        buy_amount = (
-            affordable_notional / price if price > 0 else 0.0
-        )
+        buy_amount = affordable_notional / price if price > 0 else 0.0
         if buy_amount <= 0:
             return
 
         if req.symbol in portfolio.positions:
             pos = portfolio.positions[req.symbol]
             total_amount = pos.amount + buy_amount
-            avg_price = (
-                (pos.entry_price * pos.amount + price * buy_amount)
-                / total_amount
-            )
+            avg_price = (pos.entry_price * pos.amount + price * buy_amount) / total_amount
             portfolio.positions[req.symbol] = pos.model_copy(
                 update={
                     "amount": total_amount,
@@ -411,9 +408,7 @@ def _apply_single_order_to_portfolio(
 
     elif req.side == OrderSide.SELL:
         if req.symbol not in portfolio.positions:
-            logger.warning(
-                "SELL order for %s ignored — no position held", req.symbol
-            )
+            logger.warning("SELL order for %s ignored — no position held", req.symbol)
             return
         pos = portfolio.positions[req.symbol]
         sell_amount = min(req.amount, pos.amount)
@@ -423,9 +418,7 @@ def _apply_single_order_to_portfolio(
         if remaining <= 0:
             del portfolio.positions[req.symbol]
         else:
-            portfolio.positions[req.symbol] = pos.model_copy(
-                update={"amount": remaining}
-            )
+            portfolio.positions[req.symbol] = pos.model_copy(update={"amount": remaining})
 
 
 def _rollback_portfolio(
@@ -444,8 +437,7 @@ def _rollback_portfolio(
     portfolio.positions = snapshot.positions
     portfolio.peak_balance = snapshot.peak_balance
     logger.info(
-        "Rolled back tentative portfolio reservations "
-        "(%d order requests discarded)",
+        "Rolled back tentative portfolio reservations (%d order requests discarded)",
         len(state.order_requests),
     )
 
@@ -501,9 +493,7 @@ def main() -> None:
     logger.info("=" * 60)
 
     if settings.is_live:
-        logger.warning(
-            "LIVE TRADING MODE — real orders will be placed on %s", settings.exchange_id
-        )
+        logger.warning("LIVE TRADING MODE — real orders will be placed on %s", settings.exchange_id)
 
     signal.signal(signal.SIGINT, _handle_shutdown)
     signal.signal(signal.SIGTERM, _handle_shutdown)
@@ -716,8 +706,7 @@ def main() -> None:
                     )
                     if state.order_requests:
                         logger.info(
-                            "Portfolio (tentative): balance=%.2f, "
-                            "positions=%d, exposure=%.1f%%",
+                            "Portfolio (tentative): balance=%.2f, positions=%d, exposure=%.1f%%",
                             portfolio.balance_quote,
                             len(portfolio.positions),
                             portfolio.exposure_pct,
@@ -753,7 +742,9 @@ def main() -> None:
                     logger.exception("Execution Crew failed")
                     _rollback_portfolio(portfolio, portfolio_snapshot, state)
                     portfolio_snapshot = None
-                    notification_service.notify_error("Execution Crew failed — reservations rolled back")
+                    notification_service.notify_error(
+                        "Execution Crew failed — reservations rolled back"
+                    )
             else:
                 _rollback_portfolio(portfolio, portfolio_snapshot, state)
                 portfolio_snapshot = None

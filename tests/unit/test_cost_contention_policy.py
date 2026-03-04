@@ -79,8 +79,8 @@ def test_build_run_plan_strategy_not_coupled_to_market_schedule() -> None:
         settings,
         _DbCountStub(1),
         now=1000.0,
-        last_market_run=500.0,   # market not due
-        last_strategy_run=0.0,   # strategy due
+        last_market_run=500.0,  # market not due
+        last_strategy_run=0.0,  # strategy due
         last_execution_run=0.0,  # execution due
     )
     assert plan.run_market is False
@@ -145,7 +145,9 @@ def test_apply_degrade_to_plan() -> None:
 def test_accumulate_estimated_tokens() -> None:
     settings = _settings()
     state = BudgetRuntimeState(token_budget_day=datetime.now(UTC).date())
-    _accumulate_estimated_tokens(settings, state, ran_market=True, ran_strategy=False, ran_execution=True)
+    _accumulate_estimated_tokens(
+        settings, state, ran_market=True, ran_strategy=False, ran_execution=True
+    )
     assert state.estimated_tokens_used_today == 2_500
 
 

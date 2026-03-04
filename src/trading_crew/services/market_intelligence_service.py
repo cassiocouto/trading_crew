@@ -24,6 +24,7 @@ class SentimentProvider(Protocol):
     def get_snapshot(self, symbol: str | None = None) -> SentimentSnapshot:
         """Return weighted sentiment snapshot."""
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,9 +68,7 @@ class MarketIntelligenceService:
                 analyses[symbol] = analysis
         return analyses
 
-    def _run_symbol(
-        self, symbol: str, timeframe: str, candle_limit: int
-    ) -> MarketAnalysis | None:
+    def _run_symbol(self, symbol: str, timeframe: str, candle_limit: int) -> MarketAnalysis | None:
         try:
             ticker = self._exchange.fetch_ticker(symbol)
             self._db.save_ticker(ticker)

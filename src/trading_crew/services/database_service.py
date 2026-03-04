@@ -80,12 +80,16 @@ class DatabaseService:
         with get_session(self._engine) as session:
             count = 0
             for c in candles:
-                existing = session.query(OHLCVRecord).filter_by(
-                    symbol=c.symbol,
-                    exchange=c.exchange,
-                    timeframe=c.timeframe,
-                    timestamp=c.timestamp,
-                ).first()
+                existing = (
+                    session.query(OHLCVRecord)
+                    .filter_by(
+                        symbol=c.symbol,
+                        exchange=c.exchange,
+                        timeframe=c.timeframe,
+                        timestamp=c.timestamp,
+                    )
+                    .first()
+                )
                 if existing:
                     existing.open = c.open
                     existing.high = c.high
@@ -93,17 +97,19 @@ class DatabaseService:
                     existing.close = c.close
                     existing.volume = c.volume
                 else:
-                    session.add(OHLCVRecord(
-                        symbol=c.symbol,
-                        exchange=c.exchange,
-                        timeframe=c.timeframe,
-                        timestamp=c.timestamp,
-                        open=c.open,
-                        high=c.high,
-                        low=c.low,
-                        close=c.close,
-                        volume=c.volume,
-                    ))
+                    session.add(
+                        OHLCVRecord(
+                            symbol=c.symbol,
+                            exchange=c.exchange,
+                            timeframe=c.timeframe,
+                            timestamp=c.timestamp,
+                            open=c.open,
+                            high=c.high,
+                            low=c.low,
+                            close=c.close,
+                            volume=c.volume,
+                        )
+                    )
                 count += 1
         logger.debug("Upserted %d OHLCV candles", count)
         return count
@@ -186,8 +192,10 @@ class DatabaseService:
     def count_open_orders(self) -> int:
         """Count all orders with an active (non-terminal) status."""
         with get_session(self._engine) as session:
-            stmt = select(func.count()).select_from(OrderRecord).where(
-                OrderRecord.status.in_(["pending", "open", "partially_filled"])
+            stmt = (
+                select(func.count())
+                .select_from(OrderRecord)
+                .where(OrderRecord.status.in_(["pending", "open", "partially_filled"]))
             )
             result = session.execute(stmt).scalar_one()
             return int(result)
@@ -243,9 +251,7 @@ class DatabaseService:
             )
             session.add(record)
 
-    def get_pnl_history(
-        self, since: datetime | None = None, limit: int = 500
-    ) -> list[PnLSnapshot]:
+    def get_pnl_history(self, since: datetime | None = None, limit: int = 500) -> list[PnLSnapshot]:
         """Fetch P&L snapshots for equity curve rendering."""
         with get_session(self._engine) as session:
             stmt = select(PnLSnapshotRecord).order_by(PnLSnapshotRecord.timestamp.desc())
@@ -271,7 +277,5 @@ class DatabaseService:
     @staticmethod
     def _find_order_record(session: Session, exchange_order_id: str) -> OrderRecord | None:
         """Look up an order record by its exchange-assigned ID."""
-        stmt = select(OrderRecord).where(
-            OrderRecord.exchange_order_id == exchange_order_id
-        )
+        stmt = select(OrderRecord).where(OrderRecord.exchange_order_id == exchange_order_id)
         return session.execute(stmt).scalar_one_or_none()

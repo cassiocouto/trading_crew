@@ -114,10 +114,7 @@ class SaveOHLCVBatchTool(BaseTool):
             )
 
         count = self.db_service.save_ohlcv_batch(candles)
-        return (
-            f"Saved {count} OHLCV candles for {exchange} {symbol} "
-            f"({timeframe})"
-        )
+        return f"Saved {count} OHLCV candles for {exchange} {symbol} ({timeframe})"
 
     @staticmethod
     def _parse_timestamp(value: str | None) -> datetime:

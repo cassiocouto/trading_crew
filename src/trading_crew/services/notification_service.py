@@ -73,9 +73,7 @@ class NotificationService:
         channels: list[NotificationChannel] = []
 
         if settings.telegram_enabled:
-            channels.append(
-                TelegramChannel(settings.telegram_bot_token, settings.telegram_chat_id)
-            )
+            channels.append(TelegramChannel(settings.telegram_bot_token, settings.telegram_chat_id))
             logger.info("Telegram notifications enabled")
         else:
             logger.info("Telegram not configured — notifications disabled")

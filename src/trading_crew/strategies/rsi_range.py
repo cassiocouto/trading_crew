@@ -67,7 +67,7 @@ class RSIRangeStrategy(BaseStrategy):
                 entry_price=price,
                 reason=(
                     f"RSI oversold ({rsi:.1f} < {self._rsi_oversold}) and price in "
-                    f"bottom {self._range_low_pct*100:.0f}% of range "
+                    f"bottom {self._range_low_pct * 100:.0f}% of range "
                     f"({range_low:.2f} - {range_high:.2f})"
                 ),
             )
@@ -85,7 +85,7 @@ class RSIRangeStrategy(BaseStrategy):
                 entry_price=price,
                 reason=(
                     f"RSI overbought ({rsi:.1f} > {self._rsi_overbought}) and price in "
-                    f"top {(1 - self._range_high_pct)*100:.0f}% of range "
+                    f"top {(1 - self._range_high_pct) * 100:.0f}% of range "
                     f"({range_low:.2f} - {range_high:.2f})"
                 ),
             )

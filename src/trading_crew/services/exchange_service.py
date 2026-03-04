@@ -25,6 +25,7 @@ import logging
 import time
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, TypeVar
 
 import ccxt
 
@@ -37,6 +38,11 @@ from trading_crew.models.order import (
     OrderStatus,
     OrderType,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +80,7 @@ class ExchangeService:
         exchange_class = getattr(ccxt, exchange_id, None)
         if exchange_class is None:
             raise ValueError(
-                f"Unknown exchange: {exchange_id}. "
-                f"Available: {', '.join(ccxt.exchanges[:10])}..."
+                f"Unknown exchange: {exchange_id}. Available: {', '.join(ccxt.exchanges[:10])}..."
             )
 
         config: dict[str, object] = {
@@ -154,14 +159,10 @@ class ExchangeService:
             ask=float(raw.get("ask") or 0),
             last=float(raw.get("last") or 0),
             volume_24h=float(raw.get("baseVolume") or 0),
-            timestamp=datetime.fromtimestamp(
-                (raw.get("timestamp") or 0) / 1000, tz=UTC
-            ),
+            timestamp=datetime.fromtimestamp((raw.get("timestamp") or 0) / 1000, tz=UTC),
         )
 
-    def fetch_ohlcv(
-        self, symbol: str, timeframe: str = "1h", limit: int = 100
-    ) -> list[OHLCV]:
+    def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 100) -> list[OHLCV]:
         """Fetch OHLCV candles for a trading pair.
 
         Args:
@@ -389,7 +390,7 @@ class ExchangeService:
     # -- Retry Logic ----------------------------------------------------------
 
     @staticmethod
-    def _retry(fn: object, max_retries: int = MAX_RETRIES) -> object:
+    def _retry(fn: Callable[[], _T], max_retries: int = MAX_RETRIES) -> _T:
         """Execute a function with exponential backoff retry.
 
         Handles transient exchange errors (rate limits, network issues)
@@ -398,7 +399,7 @@ class ExchangeService:
         last_error: Exception | None = None
         for attempt in range(max_retries):
             try:
-                return fn()  # type: ignore[operator]
+                return fn()
             except (ccxt.RateLimitExceeded, ccxt.NetworkError, ccxt.RequestTimeout) as e:
                 last_error = e
                 delay = BASE_RETRY_DELAY * (2**attempt)

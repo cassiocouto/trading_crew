@@ -102,4 +102,3 @@ def test_run_cycle_fetches_analyzes_and_stores() -> None:
         assert analysis.metadata["sentiment_score"] == 0.25
         assert analysis.metadata["sentiment_confidence"] == 0.8
         assert analysis.metadata["sentiment_sources"] == ["stub"]
-

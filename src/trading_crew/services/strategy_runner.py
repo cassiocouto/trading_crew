@@ -49,9 +49,7 @@ class StrategyRunner:
     def strategy_names(self) -> list[str]:
         return [s.name for s in self._strategies]
 
-    def evaluate(
-        self, analyses: dict[str, MarketAnalysis]
-    ) -> list[TradeSignal]:
+    def evaluate(self, analyses: dict[str, MarketAnalysis]) -> list[TradeSignal]:
         """Run all strategies against the provided analyses.
 
         Returns:
@@ -61,18 +59,14 @@ class StrategyRunner:
             return self._evaluate_ensemble(analyses)
         return self._evaluate_individual(analyses)
 
-    def _evaluate_individual(
-        self, analyses: dict[str, MarketAnalysis]
-    ) -> list[TradeSignal]:
+    def _evaluate_individual(self, analyses: dict[str, MarketAnalysis]) -> list[TradeSignal]:
         signals: list[TradeSignal] = []
         for symbol, analysis in analyses.items():
             for strategy in self._strategies:
                 try:
                     signal = strategy.generate_signal(analysis)
                 except Exception:
-                    logger.exception(
-                        "Strategy %s failed for %s", strategy.name, symbol
-                    )
+                    logger.exception("Strategy %s failed for %s", strategy.name, symbol)
                     continue
 
                 if signal is None:
@@ -99,9 +93,7 @@ class StrategyRunner:
                 )
         return signals
 
-    def _evaluate_ensemble(
-        self, analyses: dict[str, MarketAnalysis]
-    ) -> list[TradeSignal]:
+    def _evaluate_ensemble(self, analyses: dict[str, MarketAnalysis]) -> list[TradeSignal]:
         signals: list[TradeSignal] = []
         for _symbol, analysis in analyses.items():
             consensus = self._vote(analysis)

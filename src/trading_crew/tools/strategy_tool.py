@@ -48,9 +48,7 @@ class RunStrategiesTool(BaseTool):
         for symbol, data in raw_analyses.items():
             try:
                 raw_ts = data.get("timestamp")
-                timestamp = (
-                    parse_iso_utc(raw_ts) if raw_ts else datetime.now(UTC)
-                )
+                timestamp = parse_iso_utc(raw_ts) if raw_ts else datetime.now(UTC)
                 analyses[symbol] = MarketAnalysis(
                     symbol=symbol,
                     exchange=data.get("exchange", "unknown"),

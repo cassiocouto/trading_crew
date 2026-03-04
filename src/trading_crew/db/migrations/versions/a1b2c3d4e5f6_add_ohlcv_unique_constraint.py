@@ -28,17 +28,20 @@ def upgrade() -> None:
 
     # Step 1: Remove duplicate candles, keeping the row with the lowest id.
     if dialect == "sqlite":
-        conn.execute(sa.text("""
+        conn.execute(
+            sa.text("""
             DELETE FROM ohlcv
             WHERE id NOT IN (
                 SELECT MIN(id)
                 FROM ohlcv
                 GROUP BY symbol, exchange, timeframe, timestamp
             )
-        """))
+        """)
+        )
     else:
         # PostgreSQL / MySQL — use standard CTE-based dedup
-        conn.execute(sa.text("""
+        conn.execute(
+            sa.text("""
             DELETE FROM ohlcv
             WHERE id IN (
                 SELECT id FROM (
@@ -51,13 +54,15 @@ def upgrade() -> None:
                 ) ranked
                 WHERE rn > 1
             )
-        """))
+        """)
+        )
 
     # Step 2: Add the unique constraint (skip if it already exists, e.g.
     # when this DB was created fresh with the updated ORM model).
     with contextlib.suppress(Exception):
         op.create_unique_constraint(
-            "uq_ohlcv_candle", "ohlcv",
+            "uq_ohlcv_candle",
+            "ohlcv",
             ["symbol", "exchange", "timeframe", "timestamp"],
         )
 

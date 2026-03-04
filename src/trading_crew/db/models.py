@@ -62,7 +62,10 @@ class OHLCVRecord(Base):
     __tablename__ = "ohlcv"
     __table_args__ = (
         UniqueConstraint(
-            "symbol", "exchange", "timeframe", "timestamp",
+            "symbol",
+            "exchange",
+            "timeframe",
+            "timestamp",
             name="uq_ohlcv_candle",
         ),
     )
@@ -100,7 +103,12 @@ class OrderRecord(Base):
     )
     status: Mapped[str] = mapped_column(
         SAEnum(
-            "pending", "open", "partially_filled", "filled", "cancelled", "rejected",
+            "pending",
+            "open",
+            "partially_filled",
+            "filled",
+            "cancelled",
+            "rejected",
             name="order_status",
         ),
         nullable=False,
@@ -143,9 +151,7 @@ class PositionRecord(Base):
     stop_loss_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     take_profit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     strategy_name: Mapped[str] = mapped_column(String(50), nullable=False, default="")
-    opened_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
-    )
+    opened_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     realized_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)

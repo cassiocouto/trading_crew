@@ -56,9 +56,7 @@ class CompositeStrategy(BaseStrategy):
             try:
                 signal = strategy.generate_signal(analysis)
             except Exception:
-                logger.exception(
-                    "Child strategy %s failed for %s", strategy.name, analysis.symbol
-                )
+                logger.exception("Child strategy %s failed for %s", strategy.name, analysis.symbol)
                 continue
             if signal is not None and signal.is_actionable:
                 raw_signals.append(signal)
