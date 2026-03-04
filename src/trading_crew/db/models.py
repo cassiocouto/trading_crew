@@ -201,3 +201,48 @@ class TradeSignalRecord(Base):
     timestamp: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, index=True, server_default=func.now()
     )
+
+
+class FailedOrderRecord(Base):
+    """Dead-letter queue entry for orders that could not be placed.
+
+    Persists failed order attempts for manual review, alerting, and
+    post-mortem analysis. Records the original request details and the
+    reason for failure.
+    """
+
+    __tablename__ = "failed_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    exchange: Mapped[str] = mapped_column(String(30), nullable=False)
+    side: Mapped[str] = mapped_column(String(4), nullable=False)
+    order_type: Mapped[str] = mapped_column(String(6), nullable=False)
+    requested_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    requested_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    strategy_name: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    error_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    resolved: Mapped[bool] = mapped_column(default=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, index=True, server_default=func.now()
+    )
+
+
+class PortfolioRecord(Base):
+    """Periodic portfolio state snapshot.
+
+    Saves the full portfolio state after each execution cycle so the system
+    can recover to the last known state on restart.
+    """
+
+    __tablename__ = "portfolio_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, index=True, server_default=func.now()
+    )
+    balance_quote: Mapped[float] = mapped_column(Float, nullable=False)
+    realized_pnl: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_fees: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    num_positions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")

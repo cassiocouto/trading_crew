@@ -132,3 +132,75 @@ class PlaceOrderTool(BaseTool):
             },
             indent=2,
         )
+
+
+class FetchOrderStatusTool(BaseTool):
+    """Fetch the current status of an open order from the exchange."""
+
+    name: str = "fetch_order_status"
+    description: str = (
+        "Fetch the current status of an order on the exchange. "
+        "Input: JSON with 'order_id' and 'symbol' (e.g. 'BTC/USDT'). "
+        "Returns status, filled amount, remaining amount, and average fill price."
+    )
+    exchange_service: ExchangeService = Field(exclude=True)
+
+    def _run(self, input_str: str) -> str:
+        try:
+            params = json.loads(input_str)
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"Invalid JSON input: {e}"})
+
+        order_id = params.get("order_id", "")
+        symbol = params.get("symbol", "")
+
+        if not order_id or not symbol:
+            return json.dumps({"error": "Both 'order_id' and 'symbol' are required"})
+
+        try:
+            raw = self.exchange_service.fetch_order_status(order_id, symbol)
+        except Exception as e:
+            return json.dumps({"error": f"Failed to fetch order status: {e}"})
+
+        return json.dumps(
+            {
+                "order_id": order_id,
+                "status": raw.get("status"),
+                "filled": raw.get("filled"),
+                "remaining": raw.get("remaining"),
+                "average": raw.get("average"),
+                "symbol": raw.get("symbol", symbol),
+            },
+            indent=2,
+        )
+
+
+class CancelOrderTool(BaseTool):
+    """Cancel an open order on the exchange."""
+
+    name: str = "cancel_order"
+    description: str = (
+        "Cancel an open order on the exchange. "
+        "Input: JSON with 'order_id' and 'symbol' (e.g. 'BTC/USDT'). "
+        "Returns a confirmation message or an error."
+    )
+    exchange_service: ExchangeService = Field(exclude=True)
+
+    def _run(self, input_str: str) -> str:
+        try:
+            params = json.loads(input_str)
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"Invalid JSON input: {e}"})
+
+        order_id = params.get("order_id", "")
+        symbol = params.get("symbol", "")
+
+        if not order_id or not symbol:
+            return json.dumps({"error": "Both 'order_id' and 'symbol' are required"})
+
+        try:
+            self.exchange_service.cancel_order(order_id, symbol)
+        except Exception as e:
+            return json.dumps({"error": f"Failed to cancel order: {e}"})
+
+        return json.dumps({"cancelled": True, "order_id": order_id, "symbol": symbol}, indent=2)

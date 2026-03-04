@@ -387,6 +387,88 @@ class ExchangeService:
             return base_price * (1 + slippage_mult)
         return base_price * (1 - slippage_mult)
 
+    # -- Precision & Market Limits --------------------------------------------
+
+    def _ensure_markets_loaded(self) -> None:
+        """Lazy-load CCXT market metadata if not already available.
+
+        Called before any precision or limit lookup. In paper mode we still
+        attempt to load markets so precision rounding works correctly; if the
+        exchange is unreachable we silently skip and fall back to raw values.
+        """
+        if self._exchange.markets:
+            return
+        try:
+            self._exchange.load_markets()
+            logger.debug("Markets loaded for %s (%d symbols)", self._exchange_id, len(self._exchange.markets))
+        except Exception as exc:
+            logger.warning("Could not load markets for %s: %s (precision rounding will be skipped)", self._exchange_id, exc)
+
+    def normalize_order_precision(
+        self, symbol: str, amount: float, price: float | None = None
+    ) -> tuple[float, float | None]:
+        """Round amount and price to the exchange's required precision.
+
+        Uses CCXT's ``amount_to_precision`` / ``price_to_precision`` helpers
+        which apply the exchange-specific lot-size and tick-size rules.
+
+        Args:
+            symbol: Trading pair (e.g. ``"BTC/USDT"``).
+            amount: Raw order amount before rounding.
+            price: Raw limit price before rounding (``None`` for market orders).
+
+        Returns:
+            ``(rounded_amount, rounded_price)`` where ``rounded_price`` is
+            ``None`` for market orders.
+        """
+        self._ensure_markets_loaded()
+
+        if not self._exchange.markets or symbol not in self._exchange.markets:
+            logger.debug("No market data for %s — returning raw values", symbol)
+            return amount, price
+
+        try:
+            rounded_amount = float(self._exchange.amount_to_precision(symbol, amount))
+        except Exception as exc:
+            logger.warning("amount_to_precision failed for %s: %s — using raw amount", symbol, exc)
+            rounded_amount = amount
+
+        rounded_price: float | None = None
+        if price is not None:
+            try:
+                rounded_price = float(self._exchange.price_to_precision(symbol, price))
+            except Exception as exc:
+                logger.warning("price_to_precision failed for %s: %s — using raw price", symbol, exc)
+                rounded_price = price
+
+        return rounded_amount, rounded_price
+
+    def get_market_limits(self, symbol: str) -> dict[str, float | None]:
+        """Return the minimum order constraints for a symbol.
+
+        Returns:
+            Dictionary with keys ``amount_min``, ``cost_min``, ``price_min``.
+            Values are ``None`` when the exchange does not publish the limit.
+        """
+        self._ensure_markets_loaded()
+
+        empty: dict[str, float | None] = {"amount_min": None, "cost_min": None, "price_min": None}
+
+        if not self._exchange.markets or symbol not in self._exchange.markets:
+            return empty
+
+        market = self._exchange.markets[symbol]
+        limits = market.get("limits") or {}
+        amount_limits = limits.get("amount") or {}
+        cost_limits = limits.get("cost") or {}
+        price_limits = limits.get("price") or {}
+
+        return {
+            "amount_min": float(amount_limits["min"]) if amount_limits.get("min") is not None else None,
+            "cost_min": float(cost_limits["min"]) if cost_limits.get("min") is not None else None,
+            "price_min": float(price_limits["min"]) if price_limits.get("min") is not None else None,
+        }
+
     # -- Retry Logic ----------------------------------------------------------
 
     @staticmethod

@@ -53,6 +53,14 @@ class StrategyPipelineMode(StrEnum):
     HYBRID = "hybrid"
 
 
+class ExecutionPipelineMode(StrEnum):
+    """How the execution pipeline should place and monitor orders each cycle."""
+
+    CREWAI = "crewai"
+    DETERMINISTIC = "deterministic"
+    HYBRID = "hybrid"
+
+
 class StopLossMethod(StrEnum):
     """How stop-loss prices are calculated."""
 
@@ -106,12 +114,16 @@ class Settings(BaseSettings):
     # -- Trading loop ---------------------------------------------------------
     loop_interval_seconds: int = Field(default=900, ge=10)
     stale_order_cancel_minutes: int = Field(default=10, ge=1)
+    stale_partial_fill_cancel_minutes: int = Field(default=360, ge=1)
 
     # -- Cost contention mode -------------------------------------------------
     cost_contention_enabled: bool = True
     market_crew_interval_seconds: int = Field(default=900, ge=10)
     strategy_crew_interval_seconds: int = Field(default=1800, ge=10)
     execution_crew_interval_seconds: int = Field(default=900, ge=10)
+
+    # -- Execution pipeline (Phase 4) -----------------------------------------
+    execution_pipeline_mode: ExecutionPipelineMode = ExecutionPipelineMode.DETERMINISTIC
 
     # -- Strategy pipeline (Phase 3) ------------------------------------------
     strategy_pipeline_mode: StrategyPipelineMode = StrategyPipelineMode.DETERMINISTIC

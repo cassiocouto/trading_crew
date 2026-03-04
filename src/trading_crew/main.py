@@ -43,6 +43,7 @@ from trading_crew.agents.sentiment import create_sentiment_agent
 from trading_crew.agents.sentinel import create_sentinel_agent
 from trading_crew.agents.strategist import create_strategist_agent
 from trading_crew.config.settings import (
+    ExecutionPipelineMode,
     MarketPipelineMode,
     Settings,
     StrategyPipelineMode,
@@ -59,6 +60,7 @@ from trading_crew.models.portfolio import Portfolio, Position
 from trading_crew.risk.circuit_breaker import CircuitBreaker
 from trading_crew.services.database_service import DatabaseService
 from trading_crew.services.exchange_service import ExchangeService
+from trading_crew.services.execution_service import ExecutionService
 from trading_crew.services.market_intelligence_service import MarketIntelligenceService
 from trading_crew.services.notification_service import NotificationService
 from trading_crew.services.risk_pipeline import RiskPipeline
@@ -137,62 +139,6 @@ def _utc_today() -> date:
     return datetime.now(UTC).date()
 
 
-def _non_llm_open_order_probe(
-    db_service: DatabaseService,
-    exchange_service: ExchangeService,
-    max_orders: int = 20,
-) -> int:
-    """Perform lightweight open-order status checks without CrewAI/LLM calls."""
-    open_orders = db_service.get_open_orders()
-    if not open_orders:
-        logger.info("Hard-stop monitor: no open orders to probe.")
-        return 0
-
-    checked = 0
-    status_counts: dict[str, int] = {}
-    for order in open_orders[:max_orders]:
-        try:
-            raw = exchange_service.fetch_order_status(order.exchange_order_id, order.symbol)
-            status = str(raw.get("status", "unknown")).lower()
-        except Exception:
-            logger.exception(
-                "Hard-stop monitor: failed to probe order %s (%s)",
-                order.exchange_order_id,
-                order.symbol,
-            )
-            status = "error"
-        normalized_status = _normalize_exchange_order_status(status)
-        if normalized_status is not None:
-            db_service.update_order_status_by_exchange_id(
-                order.exchange_order_id, normalized_status
-            )
-            status = normalized_status
-        status_counts[status] = status_counts.get(status, 0) + 1
-        checked += 1
-
-    logger.info(
-        "Hard-stop monitor: checked %d open orders (status counts: %s)",
-        checked,
-        status_counts,
-    )
-    return checked
-
-
-def _normalize_exchange_order_status(raw_status: str) -> str | None:
-    """Map exchange/raw order status values to local normalized status values."""
-    mapping = {
-        "pending": "pending",
-        "open": "open",
-        "partial": "partially_filled",
-        "partially_filled": "partially_filled",
-        "closed": "filled",
-        "filled": "filled",
-        "canceled": "cancelled",
-        "cancelled": "cancelled",
-        "expired": "cancelled",
-        "rejected": "rejected",
-    }
-    return mapping.get(raw_status.lower())
 
 
 def _refresh_budget_day(settings: Settings, budget_state: BudgetRuntimeState) -> None:
@@ -448,7 +394,7 @@ def main() -> None:
     _setup_logging(settings.log_level)
 
     logger.info("=" * 60)
-    logger.info("Trading Crew v0.1.0 starting (Phase 1 scaffold)")
+    logger.info("Trading Crew v0.4.0 starting (Phase 4: Execution Crew)")
     logger.info("Mode: %s", settings.trading_mode.value)
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))
@@ -461,6 +407,12 @@ def main() -> None:
     )
     logger.info("Sentiment enrichment enabled: %s", settings.sentiment_enabled)
     logger.info("Strategy pipeline mode: %s", settings.strategy_pipeline_mode.value)
+    logger.info("Execution pipeline mode: %s", settings.execution_pipeline_mode.value)
+    logger.info(
+        "Stale order cancel: %dmin (partial fills: %dmin)",
+        settings.stale_order_cancel_minutes,
+        settings.stale_partial_fill_cancel_minutes,
+    )
     logger.info("Ensemble mode: %s", settings.ensemble_enabled)
     logger.info(
         "Stop-loss method: %s (ATR multiplier=%.1f)",
@@ -550,6 +502,14 @@ def main() -> None:
         stop_loss_method=settings.stop_loss_method.value,
         atr_stop_multiplier=settings.atr_stop_multiplier,
     )
+    execution_service = ExecutionService(
+        exchange_service=exchange_service,
+        db_service=db_service,
+        notification_service=notification_service,
+        stale_order_cancel_minutes=settings.stale_order_cancel_minutes,
+        stale_partial_fill_cancel_minutes=settings.stale_partial_fill_cancel_minutes,
+    )
+
     portfolio = Portfolio(
         balance_quote=settings.initial_balance_quote,
         peak_balance=settings.initial_balance_quote,
@@ -575,9 +535,17 @@ def main() -> None:
         portfolio=portfolio,
     )
     executor = create_executor_agent(
-        exchange_service, notification_service, agent_configs.get("executor", {})
+        exchange_service,
+        notification_service,
+        agent_configs.get("executor", {}),
+        db_service=db_service,
     )
-    monitor = create_monitor_agent(notification_service, agent_configs.get("monitor", {}))
+    monitor = create_monitor_agent(
+        notification_service,
+        agent_configs.get("monitor", {}),
+        exchange_service=exchange_service,
+        db_service=db_service,
+    )
 
     # -- Build crews ----------------------------------------------------------
     market_crew = MarketCrew(
@@ -732,18 +700,59 @@ def main() -> None:
 
             if plan.run_execution:
                 try:
-                    logger.info("[3/3] Running Execution Crew...")
-                    execution_result = execution_crew.kickoff()
-                    execution_len = len(str(execution_result))
-                    logger.info("Execution Crew completed. Raw output length: %d", execution_len)
+                    logger.info("[3/3] Running Execution pipeline...")
+
+                    if settings.execution_pipeline_mode in (
+                        ExecutionPipelineMode.DETERMINISTIC,
+                        ExecutionPipelineMode.HYBRID,
+                    ):
+                        exec_result = execution_service.process_order_requests(
+                            state.order_requests, portfolio
+                        )
+                        poll_result = execution_service.poll_and_reconcile(portfolio)
+
+                        state.orders = exec_result.placed + poll_result.placed
+                        state.filled_orders = exec_result.filled + poll_result.filled
+                        state.cancelled_orders = exec_result.cancelled + poll_result.cancelled
+                        state.failed_orders = [f.as_dict() for f in exec_result.failed + poll_result.failed]
+
+                        logger.info(
+                            "Execution deterministic pipeline: placed=%d, filled=%d, "
+                            "cancelled=%d, failed=%d",
+                            len(state.orders),
+                            len(state.filled_orders),
+                            len(state.cancelled_orders),
+                            len(state.failed_orders),
+                        )
+                        if state.filled_orders:
+                            logger.info(
+                                "Portfolio (post-fill): balance=%.4f, positions=%d, "
+                                "realized_pnl=%.4f",
+                                portfolio.balance_quote,
+                                len(portfolio.positions),
+                                portfolio.realized_pnl,
+                            )
+
+                    if settings.execution_pipeline_mode in (
+                        ExecutionPipelineMode.CREWAI,
+                        ExecutionPipelineMode.HYBRID,
+                    ):
+                        logger.info("[3/3] Running Execution Crew (CrewAI)...")
+                        crew_result = execution_crew.kickoff()
+                        logger.info(
+                            "Execution Crew completed. Raw output length: %d",
+                            len(str(crew_result)),
+                        )
+
                     last_execution_run = now
-                    portfolio_snapshot = None
+                    portfolio_snapshot = None  # fills confirmed — no rollback needed
+
                 except Exception:
-                    logger.exception("Execution Crew failed")
+                    logger.exception("Execution pipeline failed")
                     _rollback_portfolio(portfolio, portfolio_snapshot, state)
                     portfolio_snapshot = None
                     notification_service.notify_error(
-                        "Execution Crew failed — reservations rolled back"
+                        "Execution pipeline failed — reservations rolled back"
                     )
             else:
                 _rollback_portfolio(portfolio, portfolio_snapshot, state)
@@ -754,9 +763,20 @@ def main() -> None:
                     else "n/a (not checked)"
                 )
                 logger.info(
-                    "[3/3] Skipping Execution Crew (interval not due or no open orders: %s)",
+                    "[3/3] Skipping Execution pipeline (interval not due or no open orders: %s)",
                     open_orders_label,
                 )
+                # Even when skipping new placements, poll open orders to keep
+                # portfolio state in sync (runs at no LLM cost).
+                if (
+                    budget_state.degrade_level == BudgetDegradeLevel.HARD_STOP
+                    and settings.non_llm_monitor_on_hard_stop
+                ):
+                    logger.info("Hard-stop: running deterministic order poll only")
+                    try:
+                        execution_service.poll_and_reconcile(portfolio)
+                    except Exception:
+                        logger.exception("Hard-stop order poll failed")
 
             _accumulate_estimated_tokens(
                 settings,
@@ -765,12 +785,6 @@ def main() -> None:
                 ran_strategy=plan.run_strategy,
                 ran_execution=plan.run_execution,
             )
-
-            if (
-                budget_state.degrade_level == BudgetDegradeLevel.HARD_STOP
-                and settings.non_llm_monitor_on_hard_stop
-            ):
-                _non_llm_open_order_probe(db_service, exchange_service)
 
             if settings.daily_token_budget_enabled:
                 logger.info(

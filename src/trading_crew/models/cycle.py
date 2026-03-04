@@ -5,13 +5,10 @@ Defines the structured shape of data that flows between crews:
   StrategyCrew -> CycleState.signals,
                   CycleState.risk_results,
                   CycleState.order_requests       (Phase 3: deterministic)
-  ExecutionCrew -> CycleState.orders              (Phase 4: planned)
-
-Phase 3 status:
-  market_analyses, signals, risk_results, and order_requests are populated
-  deterministically (without LLM text parsing) when the corresponding
-  pipeline mode is set to DETERMINISTIC or HYBRID. The orders field is
-  populated by the Execution Crew in Phase 4.
+  ExecutionCrew -> CycleState.orders,
+                   CycleState.filled_orders,
+                   CycleState.cancelled_orders,
+                   CycleState.failed_orders       (Phase 4: deterministic)
 """
 
 from __future__ import annotations
@@ -37,7 +34,10 @@ class CycleState(BaseModel):
         signals: Trade signals produced by the Strategy Crew.
         risk_results: Risk check results for each signal.
         order_requests: Risk-approved order requests ready for execution.
-        orders: Orders placed by the Execution Crew.
+        orders: All orders placed/tracked by the Execution Crew this cycle.
+        filled_orders: Orders that reached FILLED status this cycle.
+        cancelled_orders: Orders cancelled (stale or error) this cycle.
+        failed_orders: Order requests that could not be placed (dead-letter).
         errors: Non-fatal errors encountered during the cycle.
     """
 
@@ -49,6 +49,9 @@ class CycleState(BaseModel):
     risk_results: list[RiskCheckResult] = Field(default_factory=list)
     order_requests: list[OrderRequest] = Field(default_factory=list)
     orders: list[Order] = Field(default_factory=list)
+    filled_orders: list[Order] = Field(default_factory=list)
+    cancelled_orders: list[Order] = Field(default_factory=list)
+    failed_orders: list[dict] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
 
     @property
@@ -63,10 +66,14 @@ class CycleState(BaseModel):
         n_signals = len([s for s in self.signals if s.is_actionable])
         n_approved = len([r for r in self.risk_results if r.is_approved])
         n_requests = len(self.order_requests)
-        n_orders = len(self.orders)
+        n_placed = len(self.orders)
+        n_filled = len(self.filled_orders)
+        n_cancelled = len(self.cancelled_orders)
+        n_failed = len(self.failed_orders)
         return (
             f"Cycle {self.cycle_number}: "
             f"{n_analyses} analyses, {n_signals} signals, "
             f"{n_approved} risk-approved, {n_requests} order requests, "
-            f"{n_orders} orders"
+            f"{n_placed} placed, {n_filled} filled, "
+            f"{n_cancelled} cancelled, {n_failed} failed"
         )

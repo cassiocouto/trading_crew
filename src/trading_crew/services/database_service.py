@@ -12,14 +12,17 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 
 from trading_crew.db.models import (
+    FailedOrderRecord,
     OHLCVRecord,
     OrderRecord,
     PnLSnapshotRecord,
+    PortfolioRecord,
     TickerRecord,
     TradeSignalRecord,
 )
@@ -214,6 +217,52 @@ class DatabaseService:
             record.status = normalized
             return True
 
+    def finalize_pending_order(self, pending_id: str, placed_order: Order) -> bool:
+        """Promote a PENDING placeholder record to the real exchange-assigned ID.
+
+        Called after a successful ``create_order()`` call to avoid leaving an
+        orphaned PENDING record in the DB.  Updates the record's
+        ``exchange_order_id`` and ``status`` in-place so the ``created_at``
+        timestamp (used for stale-order detection) is preserved.
+
+        Args:
+            pending_id: The temporary ID used when saving the PENDING record
+                (e.g. ``"pending-abc123"``).
+            placed_order: The ``Order`` returned by the exchange with the real
+                ``exchange_order_id`` and final status.
+
+        Returns:
+            True if the pending record was found and updated, False otherwise.
+        """
+        from datetime import datetime as _dt
+
+        from trading_crew.models.order import Order as _Order
+
+        if not isinstance(placed_order, _Order):
+            raise TypeError(f"Expected Order, got {type(placed_order)}")
+
+        with get_session(self._engine) as session:
+            record = self._find_order_record(session, pending_id)
+            if record is None:
+                logger.warning(
+                    "finalize_pending_order: PENDING record %s not found; saving real order instead",
+                    pending_id,
+                )
+                return False
+            record.exchange_order_id = placed_order.id
+            record.status = placed_order.status.value
+            record.filled_amount = placed_order.filled_amount
+            record.average_fill_price = placed_order.average_fill_price
+            record.total_fee = placed_order.total_fee
+            record.updated_at = placed_order.updated_at or _dt.now(UTC)
+        logger.debug(
+            "Finalized pending order %s → %s [%s]",
+            pending_id,
+            placed_order.id,
+            placed_order.status.value,
+        )
+        return True
+
     # -- Signals (audit trail) ------------------------------------------------
 
     def save_signal(self, signal: TradeSignal, risk_verdict: str | None = None) -> None:
@@ -270,6 +319,139 @@ class DatabaseService:
                     drawdown_pct=r.drawdown_pct,
                 )
                 for r in reversed(records)
+            ]
+
+    # -- Portfolio State -------------------------------------------------------
+
+    #: Maximum number of portfolio snapshots to retain.  Older rows are pruned
+    #: on each save so the table stays bounded.  The crash-recovery reader only
+    #: ever needs the latest row; a small surplus gives a short audit window.
+    _MAX_PORTFOLIO_SNAPSHOTS: int = 10
+
+    def save_portfolio(self, portfolio: object) -> None:
+        """Persist the latest portfolio state, pruning stale snapshots.
+
+        Keeps only the most recent ``_MAX_PORTFOLIO_SNAPSHOTS`` rows so the
+        ``portfolio_snapshots`` table does not grow unboundedly over weeks of
+        trading.  (Time-series P&L is persisted separately by
+        ``save_pnl_snapshot``.)
+
+        Accepts the ``Portfolio`` domain model (typed as ``object`` to avoid
+        a circular import — the real type is ``trading_crew.models.portfolio.Portfolio``).
+        """
+        from trading_crew.models.portfolio import Portfolio
+
+        if not isinstance(portfolio, Portfolio):
+            raise TypeError(f"Expected Portfolio, got {type(portfolio)}")
+
+        positions_data = {
+            symbol: {
+                "entry_price": pos.entry_price,
+                "amount": pos.amount,
+                "current_price": pos.current_price,
+                "stop_loss_price": pos.stop_loss_price,
+                "take_profit_price": pos.take_profit_price,
+                "strategy_name": pos.strategy_name,
+            }
+            for symbol, pos in portfolio.positions.items()
+        }
+
+        pruned = 0
+        with get_session(self._engine) as session:
+            # Insert the new snapshot
+            record = PortfolioRecord(
+                balance_quote=portfolio.balance_quote,
+                realized_pnl=portfolio.realized_pnl,
+                total_fees=portfolio.total_fees,
+                num_positions=len(portfolio.positions),
+                positions_json=json.dumps(positions_data, default=str),
+            )
+            session.add(record)
+            session.flush()  # assign PK before pruning
+
+            # Prune rows that exceed the retention window
+            stmt = (
+                select(PortfolioRecord.id)
+                .order_by(PortfolioRecord.id.desc())
+                .offset(self._MAX_PORTFOLIO_SNAPSHOTS)
+            )
+            stale_ids = list(session.execute(stmt).scalars().all())
+            if stale_ids:
+                session.query(PortfolioRecord).filter(
+                    PortfolioRecord.id.in_(stale_ids)
+                ).delete(synchronize_session=False)
+                pruned = len(stale_ids)
+
+        logger.debug(
+            "Saved portfolio snapshot: balance=%.2f, positions=%d (pruned %d old rows)",
+            portfolio.balance_quote,
+            len(portfolio.positions),
+            pruned,
+        )
+
+    # -- Failed Orders (dead-letter) ------------------------------------------
+
+    def save_failed_order(self, order_request: object, error_reason: str) -> None:
+        """Persist a failed order request for dead-letter review.
+
+        Accepts the ``OrderRequest`` domain model (typed as ``object`` to avoid
+        a circular import — the real type is ``trading_crew.models.order.OrderRequest``).
+        """
+        from trading_crew.models.order import OrderRequest
+
+        if not isinstance(order_request, OrderRequest):
+            raise TypeError(f"Expected OrderRequest, got {type(order_request)}")
+
+        with get_session(self._engine) as session:
+            record = FailedOrderRecord(
+                symbol=order_request.symbol,
+                exchange=order_request.exchange,
+                side=order_request.side.value,
+                order_type=order_request.order_type.value,
+                requested_amount=order_request.amount,
+                requested_price=order_request.price,
+                strategy_name=order_request.strategy_name,
+                error_reason=error_reason,
+            )
+            session.add(record)
+        logger.warning(
+            "Dead-letter: failed to place %s %s for %s — %s",
+            order_request.side.value,
+            order_request.symbol,
+            order_request.strategy_name,
+            error_reason[:200],
+        )
+
+    def get_failed_orders(self, unresolved_only: bool = True) -> list[dict]:
+        """Retrieve failed order records for manual review.
+
+        Args:
+            unresolved_only: When True, returns only unresolved entries.
+
+        Returns:
+            List of dicts with failed order details.
+        """
+        with get_session(self._engine) as session:
+            stmt = select(FailedOrderRecord)
+            if unresolved_only:
+                stmt = stmt.where(FailedOrderRecord.resolved.is_(False))
+            stmt = stmt.order_by(FailedOrderRecord.timestamp.desc())
+            records = session.execute(stmt).scalars().all()
+            return [
+                {
+                    "id": r.id,
+                    "symbol": r.symbol,
+                    "exchange": r.exchange,
+                    "side": r.side,
+                    "order_type": r.order_type,
+                    "requested_amount": r.requested_amount,
+                    "requested_price": r.requested_price,
+                    "strategy_name": r.strategy_name,
+                    "error_reason": r.error_reason,
+                    "resolved": r.resolved,
+                    "timestamp": r.timestamp.isoformat(),
+                }
+                for r in records
             ]
 
     # -- Helpers --------------------------------------------------------------
