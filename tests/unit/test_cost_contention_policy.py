@@ -1,8 +1,9 @@
-"""Unit tests for cost-contention scheduling and budget policy helpers."""
+"""Unit tests for cost-contention scheduling, budget policy, and balance sync helpers."""
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -17,9 +18,11 @@ from trading_crew.main import (
     _build_run_plan,
     _is_due,
     _refresh_budget_day,
+    _sync_balance_if_due,
     _update_degrade_level,
 )
 from trading_crew.models.cycle import CycleState
+from trading_crew.models.portfolio import Portfolio
 from trading_crew.services.notification_service import NotificationService
 
 
@@ -158,3 +161,92 @@ def test_apply_market_data_gate_disables_decision_crews_on_empty_analyses() -> N
     out = _apply_market_data_gate(plan, state)
     assert out.run_strategy is False
     assert out.run_execution is False
+
+
+# ---------------------------------------------------------------------------
+# _sync_balance_if_due tests
+# ---------------------------------------------------------------------------
+
+
+def _mock_exchange(balance: dict[str, float] | None = None) -> MagicMock:
+    mock = MagicMock()
+    mock.fetch_balance = AsyncMock(return_value=balance or {"USDT": 9_500.0})
+    return mock
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_balance_skips_when_interval_not_due() -> None:
+    exchange = _mock_exchange()
+    portfolio = Portfolio(balance_quote=10_000.0, peak_balance=10_000.0)
+    notifier = MagicMock(spec=NotificationService)
+    last_sync = datetime.now(UTC)
+
+    result = await _sync_balance_if_due(
+        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
+    )
+    exchange.fetch_balance.assert_not_called()
+    assert portfolio.balance_quote == 10_000.0
+    assert result == last_sync
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_balance_updates_when_drift_exceeds_threshold() -> None:
+    exchange = _mock_exchange({"USDT": 9_500.0})
+    portfolio = Portfolio(balance_quote=10_000.0, peak_balance=10_000.0)
+    notifier = MagicMock(spec=NotificationService)
+    last_sync = datetime.now(UTC) - timedelta(seconds=301)
+
+    result = await _sync_balance_if_due(
+        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
+    )
+    assert portfolio.balance_quote == 9_500.0
+    notifier.notify.assert_called_once()
+    assert result > last_sync
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_balance_no_alert_when_drift_below_threshold() -> None:
+    exchange = _mock_exchange({"USDT": 9_995.0})
+    portfolio = Portfolio(balance_quote=10_000.0, peak_balance=10_000.0)
+    notifier = MagicMock(spec=NotificationService)
+    last_sync = datetime.now(UTC) - timedelta(seconds=301)
+
+    await _sync_balance_if_due(
+        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
+    )
+    assert portfolio.balance_quote == 9_995.0
+    notifier.notify.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_balance_handles_fetch_failure_gracefully() -> None:
+    exchange = MagicMock()
+    exchange.fetch_balance = AsyncMock(side_effect=RuntimeError("connection timeout"))
+    portfolio = Portfolio(balance_quote=10_000.0, peak_balance=10_000.0)
+    notifier = MagicMock(spec=NotificationService)
+    last_sync = datetime.now(UTC) - timedelta(seconds=301)
+
+    result = await _sync_balance_if_due(
+        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
+    )
+    assert portfolio.balance_quote == 10_000.0
+    notifier.notify.assert_not_called()
+    assert result > last_sync
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_balance_skips_when_currency_not_in_response() -> None:
+    exchange = _mock_exchange({"BTC": 0.5})
+    portfolio = Portfolio(balance_quote=10_000.0, peak_balance=10_000.0)
+    notifier = MagicMock(spec=NotificationService)
+    last_sync = datetime.now(UTC) - timedelta(seconds=301)
+
+    await _sync_balance_if_due(
+        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
+    )
+    assert portfolio.balance_quote == 10_000.0

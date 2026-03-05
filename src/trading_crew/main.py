@@ -452,7 +452,7 @@ async def main_async() -> None:
     _setup_logging(settings.log_level)
 
     logger.info("=" * 60)
-    logger.info("Trading Crew v0.8.0 starting (Phase 8: Hardening and Optimization)")
+    logger.info("Trading Crew v0.9.0 starting (Live Balance Sync)")
     logger.info("Mode: %s", settings.trading_mode.value)
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))
