@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
-[![CI](https://img.shields.io/github/actions/workflow/status/your-org/trading-crew/ci.yml?label=CI)](https://github.com/your-org/trading-crew/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/cassiocouto/trading_crew/ci.yml?branch=main&label=CI)](https://github.com/cassiocouto/trading_crew/actions/workflows/ci.yml)
 
 ---
 
