@@ -22,7 +22,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from crewai import Crew
 from crewai.flow.flow import Flow, listen, or_, router, start
 
 from trading_crew.config.settings import (
@@ -33,6 +32,8 @@ from trading_crew.config.settings import (
 from trading_crew.models.cycle import CycleState
 
 if TYPE_CHECKING:
+    from crewai import Crew
+
     from trading_crew.config.settings import Settings
     from trading_crew.main import BudgetDegradeLevel, BudgetRuntimeState, RunPlan
     from trading_crew.models.market import MarketAnalysis
