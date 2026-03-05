@@ -44,7 +44,7 @@ class StrategyCrew:
         self._task_configs = task_configs
         self._risk_params = risk_params
 
-    def build(self) -> Crew:
+    def build(self, *, verbose: bool = False) -> Crew:
         """Build the Crew with its agents and tasks."""
         signal_config = self._task_configs.get("generate_signals", {})
         risk_config = self._task_configs.get("validate_risk", {})
@@ -75,5 +75,5 @@ class StrategyCrew:
         return Crew(
             agents=[self._strategist, self._risk_manager],
             tasks=[signal_task, risk_task],
-            verbose=True,
+            verbose=verbose,
         )

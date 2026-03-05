@@ -231,6 +231,15 @@ class Settings(BaseSettings):
     # -- Telegram alert level (Phase 7) ---------------------------------------
     telegram_notify_level: TelegramNotifyLevel = TelegramNotifyLevel.TRADES_ONLY
 
+    # -- CrewAI verbosity -----------------------------------------------------
+    crewai_verbose: bool = Field(
+        default=False,
+        description=(
+            "Enable CrewAI agent/crew/flow console output. "
+            "When False, all CrewAI output is routed through the logging system."
+        ),
+    )
+
     # -- Logging --------------------------------------------------------------
     log_level: str = "INFO"
 

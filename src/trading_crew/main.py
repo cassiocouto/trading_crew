@@ -106,17 +106,69 @@ class BudgetRuntimeState:
     degrade_level: BudgetDegradeLevel = BudgetDegradeLevel.NORMAL
 
 
-def _setup_logging(level: str) -> None:
-    """Configure structured logging for the application."""
+class _LoggingStream:
+    """File-like wrapper that routes write() calls through the logging system.
+
+    Installed as ``sys.stdout`` so that any library using ``print()``
+    (e.g. CrewAI's EventsBus / ConsoleFormatter) goes through structured
+    logging instead of raw console output.  Encoding issues on Windows
+    (charmap/cp1252 vs emoji) are eliminated because the underlying
+    log handlers already use UTF-8.
+    """
+
+    def __init__(self, logger_name: str = "crewai.console", level: int = logging.INFO) -> None:
+        self._logger = logging.getLogger(logger_name)
+        self._level = level
+        self._buffer = ""
+        self.encoding = "utf-8"
+
+    def write(self, msg: str) -> int:
+        if msg and msg.strip():
+            for line in msg.rstrip("\n").split("\n"):
+                self._logger.log(self._level, "%s", line)
+        return len(msg)
+
+    def flush(self) -> None:
+        pass
+
+    def fileno(self) -> int:
+        raise OSError("LoggingStream has no file descriptor")
+
+    def isatty(self) -> bool:
+        return False
+
+
+def _setup_logging(level: str, *, capture_stdout: bool = True) -> None:
+    """Configure structured logging for the application.
+
+    Args:
+        level: Log level string (e.g. "INFO", "DEBUG").
+        capture_stdout: When True, replace ``sys.stdout`` with a logging
+            wrapper so that third-party ``print()`` calls (CrewAI) flow
+            through the logging system.
+    """
+    # On Windows, ensure the real console streams accept UTF-8 before we
+    # hand them off to logging StreamHandler (needed when capture_stdout
+    # is False or for stderr).
+    if sys.platform == "win32":
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    handlers: list[logging.Handler] = [
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("trading_crew.log", encoding="utf-8"),
+    ]
     logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
+        level=log_level,
         format="%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler("trading_crew.log", encoding="utf-8"),
-        ],
+        handlers=handlers,
     )
+
+    if capture_stdout:
+        sys.stdout = _LoggingStream(level=logging.DEBUG)  # type: ignore[assignment]
 
 
 def _make_shutdown_handler(
@@ -451,7 +503,7 @@ def _rollback_portfolio(
 async def main_async() -> None:
     """Async main entry point — initialize services and run the trading loop."""
     settings = get_settings()
-    _setup_logging(settings.log_level)
+    _setup_logging(settings.log_level, capture_stdout=not settings.crewai_verbose)
 
     logger.info("=" * 60)
     logger.info("Trading Crew v0.10.0 starting (Position Guard System)")
@@ -621,31 +673,39 @@ async def main_async() -> None:
     task_configs = _load_yaml(str(settings.tasks_yaml_path))
 
     # -- Create agents --------------------------------------------------------
+    _verbose = settings.crewai_verbose
     sentinel = create_sentinel_agent(
-        exchange_service, db_service, agent_configs.get("sentinel", {})
+        exchange_service,
+        db_service,
+        agent_configs.get("sentinel", {}),
+        verbose=_verbose,
     )
-    analyst = create_analyst_agent(agent_configs.get("analyst", {}))
-    sentiment = create_sentiment_agent(agent_configs.get("sentiment", {}))
+    analyst = create_analyst_agent(agent_configs.get("analyst", {}), verbose=_verbose)
+    sentiment = create_sentiment_agent(agent_configs.get("sentiment", {}), verbose=_verbose)
     strategist = create_strategist_agent(
         agent_configs.get("strategist", {}),
         strategy_runner=strategy_runner,
+        verbose=_verbose,
     )
     risk_manager = create_risk_manager_agent(
         agent_configs.get("risk_manager", {}),
         risk_pipeline=risk_pipeline,
         portfolio=portfolio,
+        verbose=_verbose,
     )
     executor = create_executor_agent(
         exchange_service,
         notification_service,
         agent_configs.get("executor", {}),
         db_service=db_service,
+        verbose=_verbose,
     )
     monitor = create_monitor_agent(
         notification_service,
         agent_configs.get("monitor", {}),
         exchange_service=exchange_service,
         db_service=db_service,
+        verbose=_verbose,
     )
 
     # -- Build crews ----------------------------------------------------------
@@ -657,21 +717,21 @@ async def main_async() -> None:
         symbols=settings.symbols,
         exchange_id=settings.exchange_id,
         timeframe=settings.default_timeframe,
-    ).build()
+    ).build(verbose=_verbose)
 
     strategy_crew = StrategyCrew(
         strategist=strategist,
         risk_manager=risk_manager,
         task_configs=task_configs,
         risk_params=settings.risk,
-    ).build()
+    ).build(verbose=_verbose)
 
     execution_crew = ExecutionCrew(
         executor=executor,
         monitor=monitor,
         task_configs=task_configs,
         stale_order_cancel_minutes=settings.stale_order_cancel_minutes,
-    ).build()
+    ).build(verbose=_verbose)
 
     # -- Notify startup -------------------------------------------------------
     notification_service.notify(

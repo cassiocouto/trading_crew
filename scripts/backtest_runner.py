@@ -139,7 +139,10 @@ def main() -> int:
         print(
             f"Fetching {args.symbol} {args.timeframe} from {args.from_date} to {args.to_date} ..."
         )
-        exchange_svc = ExchangeService(exchange_id=args.exchange)
+        exchange_svc = ExchangeService(
+            exchange_id=args.exchange,
+            sandbox=False,
+        )
 
         async def _fetch() -> list:
             try:
@@ -176,8 +179,10 @@ def main() -> int:
         )
         return 1
 
-    print(f"Loaded {len(candles)} candles from {candles[0].timestamp.date()} "
-          f"to {candles[-1].timestamp.date()}")
+    print(
+        f"Loaded {len(candles)} candles from {candles[0].timestamp.date()} "
+        f"to {candles[-1].timestamp.date()}"
+    )
 
     # ---- Build config -------------------------------------------------------
     config = BacktestConfig(

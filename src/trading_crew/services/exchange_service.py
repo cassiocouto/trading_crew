@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import time
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 
+import aiohttp
 import ccxt
 import ccxt.async_support as ccxt_async
 
@@ -106,15 +108,25 @@ class ExchangeService:
                 f"Unknown exchange: {exchange_id}. Available: {', '.join(ccxt.exchanges[:10])}..."
             )
 
+        _placeholder_keys = not api_key or api_key.startswith("your-")
+
         config: dict[str, object] = {
-            "apiKey": api_key,
-            "secret": api_secret,
             "enableRateLimit": True,
         }
+        # Only send credentials when they look real — placeholder keys
+        # cause Binance to reject even public endpoints with AuthenticationError.
+        if not _placeholder_keys:
+            config["apiKey"] = api_key
+            config["secret"] = api_secret
         if password:
             config["password"] = password
 
         self._exchange: ccxt_async.Exchange = exchange_class(config)
+
+        # On Windows, aiodns (c-ares) often fails DNS resolution.
+        # Flag for lazy creation of a ThreadedResolver-based session.
+        self._needs_threaded_resolver = sys.platform == "win32"
+        self._own_session: aiohttp.ClientSession | None = None
 
         if sandbox:
             try:
@@ -165,6 +177,8 @@ class ExchangeService:
     async def close(self) -> None:
         """Close the underlying async exchange connection."""
         await self._exchange.close()
+        if self._own_session is not None:
+            await self._own_session.close()
 
     # -- Market Data ----------------------------------------------------------
 
@@ -627,12 +641,22 @@ class ExchangeService:
                 self._rate_limit_cooldown_seconds,
             )
 
+    async def _ensure_session(self) -> None:
+        """Lazily inject a ThreadedResolver-based aiohttp session on Windows."""
+        if self._needs_threaded_resolver and self._own_session is None:
+            connector = aiohttp.TCPConnector(
+                resolver=aiohttp.ThreadedResolver(),
+            )
+            self._own_session = aiohttp.ClientSession(connector=connector)
+            self._exchange.session = self._own_session
+
     async def _call(self, coro_factory: Callable[[], Awaitable[_T]]) -> _T:
         """Central dispatch: CB check → retry → CB state update.
 
         All public methods route through here so the circuit breaker and
         retry logic are applied consistently.
         """
+        await self._ensure_session()
         self._check_cb()
         try:
             result = await self._retry(coro_factory)

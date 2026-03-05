@@ -25,6 +25,7 @@ def create_sentinel_agent(
     exchange_service: ExchangeService,
     db_service: DatabaseService,
     agent_config: dict[str, str],
+    verbose: bool = False,
 ) -> Agent:
     """Create the Sentinel Agent with exchange and database tools.
 
@@ -46,5 +47,5 @@ def create_sentinel_agent(
             SaveTickerTool(db_service=db_service),
             SaveOHLCVBatchTool(db_service=db_service),
         ],
-        verbose=True,
+        verbose=verbose,
     )

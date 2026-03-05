@@ -50,7 +50,7 @@ class MarketCrew:
         self._exchange_id = exchange_id
         self._timeframe = timeframe
 
-    def build(self) -> Crew:
+    def build(self, *, verbose: bool = False) -> Crew:
         """Build the Crew with its agents and tasks."""
         fetch_config = self._task_configs.get("fetch_market_data", {})
         analyze_config = self._task_configs.get("analyze_market", {})
@@ -90,5 +90,5 @@ class MarketCrew:
         return Crew(
             agents=agents,
             tasks=tasks,
-            verbose=True,
+            verbose=verbose,
         )

@@ -19,6 +19,7 @@ def create_risk_manager_agent(
     agent_config: dict[str, str],
     risk_pipeline: RiskPipeline | None = None,
     portfolio: Portfolio | None = None,
+    verbose: bool = False,
 ) -> Agent:
     """Create the Risk Manager Agent.
 
@@ -44,5 +45,5 @@ def create_risk_manager_agent(
         goal=agent_config.get("goal", "Protect capital through risk validation"),
         backstory=agent_config.get("backstory", "Conservative risk professional"),
         tools=tools,
-        verbose=True,
+        verbose=verbose,
     )

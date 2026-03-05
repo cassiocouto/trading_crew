@@ -101,7 +101,11 @@ class TradingFlow(Flow[CycleState]):
     ) -> None:
         # State fields are forwarded to Flow's __init__ which injects them into
         # the CycleState model via **kwargs.
-        super().__init__(cycle_number=cycle_number, symbols=symbols)
+        super().__init__(
+            cycle_number=cycle_number,
+            symbols=symbols,
+            suppress_flow_events=not settings.crewai_verbose,
+        )
         self._plan = plan
         self._portfolio = portfolio
         # Snapshot taken just before tentative reservations in strategy_phase();

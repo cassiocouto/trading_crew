@@ -48,6 +48,7 @@ def _make_settings(**overrides):
     s.symbols = ["BTC/USDT"]
     s.default_timeframe = "1h"
     s.market_data_candle_limit = 120
+    s.crewai_verbose = False
     for k, v in overrides.items():
         setattr(s, k, v)
     return s

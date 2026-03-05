@@ -25,6 +25,7 @@ def create_monitor_agent(
     agent_config: dict[str, str],
     exchange_service: ExchangeService | None = None,
     db_service: DatabaseService | None = None,
+    verbose: bool = False,
 ) -> Agent:
     """Create the Monitor Agent with order-polling and lifecycle tools.
 
@@ -52,5 +53,5 @@ def create_monitor_agent(
         goal=agent_config.get("goal", "Track and manage open orders"),
         backstory=agent_config.get("backstory", "Post-trade operations specialist"),
         tools=tools,
-        verbose=True,
+        verbose=verbose,
     )

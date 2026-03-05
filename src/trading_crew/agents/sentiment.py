@@ -10,7 +10,7 @@ from __future__ import annotations
 from crewai import Agent
 
 
-def create_sentiment_agent(agent_config: dict[str, str]) -> Agent:
+def create_sentiment_agent(agent_config: dict[str, str], verbose: bool = False) -> Agent:
     """Create the Sentiment Agent.
 
     Note: In Phase 1, this agent has no external tools. Sentiment tools
@@ -27,5 +27,5 @@ def create_sentiment_agent(agent_config: dict[str, str]) -> Agent:
         goal=agent_config.get("goal", "Assess market sentiment"),
         backstory=agent_config.get("backstory", "Alternative data specialist"),
         tools=[],
-        verbose=True,
+        verbose=verbose,
     )

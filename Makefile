@@ -1,6 +1,12 @@
 .PHONY: install dev lint type-check test test-unit test-integration backtest backtest-run backtest-data format pre-commit docs clean dashboard-api dashboard-ui dashboard-install docker-build docker-up docker-down
 
 # ---------------------------------------------------------------------------
+# Cross-platform date helpers (Python works on Windows, macOS, and Linux)
+# ---------------------------------------------------------------------------
+NINETY_DAYS_AGO := $(shell python -c "from datetime import date,timedelta;print(date.today()-timedelta(days=90))")
+TODAY := $(shell python -c "from datetime import date;print(date.today())")
+
+# ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
 
@@ -47,15 +53,15 @@ backtest:  ## Run backtesting tests
 backtest-run:  ## Run backtest script (BTC/USDT 1h, last 90 days)
 	uv run python scripts/backtest_runner.py \
 		--symbol BTC/USDT --exchange binance --timeframe 1h \
-		--from-date $(shell date -d "-90 days" +%Y-%m-%d 2>/dev/null || python -c "from datetime import date, timedelta; print(date.today()-timedelta(days=90))") \
-		--to-date $(shell date +%Y-%m-%d 2>/dev/null || python -c "from datetime import date; print(date.today())") \
+		--from-date $(NINETY_DAYS_AGO) \
+		--to-date $(TODAY) \
 		--compare
 
 backtest-data:  ## Fetch and cache OHLCV data only (no backtest run)
 	uv run python scripts/backtest_runner.py \
 		--symbol BTC/USDT --exchange binance --timeframe 1h \
-		--from-date $(shell date -d "-90 days" +%Y-%m-%d 2>/dev/null || python -c "from datetime import date, timedelta; print(date.today()-timedelta(days=90))") \
-		--to-date $(shell date +%Y-%m-%d 2>/dev/null || python -c "from datetime import date; print(date.today())") \
+		--from-date $(NINETY_DAYS_AGO) \
+		--to-date $(TODAY) \
 		--fetch --data-only
 
 test-cov:  ## Run tests with coverage report
@@ -78,6 +84,16 @@ db-downgrade:  ## Roll back last migration
 # Running
 # ---------------------------------------------------------------------------
 
+ifeq ($(OS),Windows_NT)
+paper-trade:  ## Start in paper-trading mode (default, safe)
+	set "TRADING_MODE=paper" && uv run trading-crew
+
+live-trade:  ## Start in live-trading mode (real orders!)
+	@echo WARNING: This will place REAL orders on your exchange.
+	@echo Press Ctrl+C within 5 seconds to cancel...
+	@python -c "import time; time.sleep(5)"
+	set "TRADING_MODE=live" && uv run trading-crew
+else
 paper-trade:  ## Start in paper-trading mode (default, safe)
 	TRADING_MODE=paper uv run trading-crew
 
@@ -86,6 +102,7 @@ live-trade:  ## Start in live-trading mode (real orders!)
 	@echo "Press Ctrl+C within 5 seconds to cancel..."
 	@sleep 5
 	TRADING_MODE=live uv run trading-crew
+endif
 
 # ---------------------------------------------------------------------------
 # Documentation
@@ -101,9 +118,21 @@ docs-serve:  ## Serve docs locally with hot reload
 # Housekeeping
 # ---------------------------------------------------------------------------
 
+ifeq ($(OS),Windows_NT)
+clean:  ## Remove build artifacts, caches, and temp files
+	if exist dist rmdir /s /q dist
+	if exist build rmdir /s /q build
+	if exist .ruff_cache rmdir /s /q .ruff_cache
+	if exist .mypy_cache rmdir /s /q .mypy_cache
+	if exist htmlcov rmdir /s /q htmlcov
+	if exist site rmdir /s /q site
+	if exist .coverage del .coverage
+	python -c "import shutil,pathlib;[shutil.rmtree(p) for p in pathlib.Path('.').rglob('__pycache__')]"
+else
 clean:  ## Remove build artifacts, caches, and temp files
 	rm -rf dist/ build/ *.egg-info .ruff_cache/ .mypy_cache/ htmlcov/ .coverage site/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+endif
 
 # ---------------------------------------------------------------------------
 # Dashboard (Phase 7)
@@ -126,9 +155,15 @@ dashboard-ui:  ## Start Next.js dev server (port 3000, requires Node)
 docker-build:  ## Build all Docker images (backend + dashboard)
 	docker compose build
 
+ifeq ($(OS),Windows_NT)
+docker-up:  ## Start all services in detached mode
+	if not exist data mkdir data
+	docker compose up --build -d
+else
 docker-up:  ## Start all services in detached mode
 	mkdir -p data
 	docker compose up --build -d
+endif
 
 docker-down:  ## Stop and remove all containers (data volume preserved)
 	docker compose down

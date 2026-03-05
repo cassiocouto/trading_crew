@@ -13,7 +13,7 @@ from crewai import Agent
 from trading_crew.tools.technical_analysis import AnalyzeMarketTool
 
 
-def create_analyst_agent(agent_config: dict[str, str]) -> Agent:
+def create_analyst_agent(agent_config: dict[str, str], verbose: bool = False) -> Agent:
     """Create the Analyst Agent with technical analysis tools.
 
     Args:
@@ -27,5 +27,5 @@ def create_analyst_agent(agent_config: dict[str, str]) -> Agent:
         goal=agent_config.get("goal", "Compute indicators and identify trends"),
         backstory=agent_config.get("backstory", "Quantitative analysis expert"),
         tools=[AnalyzeMarketTool()],
-        verbose=True,
+        verbose=verbose,
     )

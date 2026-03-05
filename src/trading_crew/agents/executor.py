@@ -25,6 +25,7 @@ def create_executor_agent(
     notification_service: NotificationService,
     agent_config: dict[str, str],
     db_service: DatabaseService | None = None,
+    verbose: bool = False,
 ) -> Agent:
     """Create the Executor Agent with order placement and persistence tools.
 
@@ -49,5 +50,5 @@ def create_executor_agent(
         goal=agent_config.get("goal", "Place orders reliably"),
         backstory=agent_config.get("backstory", "Execution specialist"),
         tools=tools,
-        verbose=True,
+        verbose=verbose,
     )

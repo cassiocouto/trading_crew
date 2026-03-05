@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 def create_strategist_agent(
     agent_config: dict[str, str],
     strategy_runner: StrategyRunner | None = None,
+    verbose: bool = False,
 ) -> Agent:
     """Create the Strategist Agent.
 
@@ -40,5 +41,5 @@ def create_strategist_agent(
         goal=agent_config.get("goal", "Generate trade signals"),
         backstory=agent_config.get("backstory", "Systematic trader"),
         tools=tools,
-        verbose=True,
+        verbose=verbose,
     )

@@ -85,6 +85,7 @@ def _make_settings(**overrides):
     s.market_data_candle_limit = 60
     s.stale_order_cancel_minutes = 10
     s.stale_partial_fill_cancel_minutes = 360
+    s.crewai_verbose = False
     for k, v in overrides.items():
         setattr(s, k, v)
     return s

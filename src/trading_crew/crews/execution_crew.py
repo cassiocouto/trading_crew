@@ -39,7 +39,7 @@ class ExecutionCrew:
         self._task_configs = task_configs
         self._stale_minutes = stale_order_cancel_minutes
 
-    def build(self) -> Crew:
+    def build(self, *, verbose: bool = False) -> Crew:
         """Build the Crew with its agents and tasks."""
         exec_config = self._task_configs.get("execute_orders", {})
         monitor_config = self._task_configs.get("monitor_orders", {})
@@ -62,5 +62,5 @@ class ExecutionCrew:
         return Crew(
             agents=[self._executor, self._monitor],
             tasks=[exec_task, monitor_task],
-            verbose=True,
+            verbose=verbose,
         )
