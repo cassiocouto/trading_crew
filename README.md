@@ -122,7 +122,7 @@ Fetch → Analyze → Signal → Risk Check → Execute → Monitor → Loop
   Phase 2 ──────┘          Phase 3 ────┘          Phase 4 (planned)
 ```
 
-> **Current status (v0.7.0 — Phase 7)**: Full trading loop runs as a `TradingFlow`
+> **Current status (v0.8.0 — Phase 8)**: Full trading loop runs as a `TradingFlow`
 > CrewAI Flow with circuit breakers, stop-loss monitoring, token budget degradation,
 > and cycle history persistence. A self-contained backtesting engine validates
 > strategies against historical data. A FastAPI + Next.js dashboard exposes

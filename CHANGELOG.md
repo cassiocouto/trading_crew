@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-03-04
+
+### Added
+
+#### Phase 8: Hardening and Optimization (v0.8.0)
+
+- **Async CCXT (`ccxt.async_support`)** — `ExchangeService` fully converted to async; all public methods are now `async def` using `await exchange.<method>()` directly; `ExchangeTool` exposes `_run()` (sync wrapper via `asyncio.run`) and `_arun()` (native async) for CrewAI tool compatibility; `ExecutionService`, `MarketIntelligenceService`, `TradingFlow` exec-phase methods, and `scripts/backtest_runner.py` updated accordingly
+- **API-level exchange rate-limit circuit breaker** in `ExchangeService` — tracks consecutive `ccxt.RateLimitExceeded` failures; once `exchange_rate_limit_threshold` (default 5) is reached, all calls are blocked for `exchange_rate_limit_cooldown_seconds` (default 60) and `ExchangeCircuitBreakerError` is raised; resets on first success; layered above `_retry()` exhaustion
+- **Async `_retry()` instance method** — accepts a `coro_factory: Callable[[], Awaitable[T]]` to avoid coroutine reuse errors; uses `await asyncio.sleep()` for non-blocking backoff; callable from `_call()` which also manages circuit-breaker state
+- **`fetch_tickers_parallel()`** — batches multiple ticker fetches in a single `asyncio.gather()` for efficient multi-symbol market scans
+- **Cross-platform graceful shutdown** — `main.py` uses `asyncio.Event` + `loop.call_soon_threadsafe` instead of a bare flag; `SIGINT`/`SIGTERM` handlers set the event from the signal thread; `asyncio.run(main_async())` wraps the trading loop; `await exchange_service.close()` called on shutdown
+- **CrewAI Flow async compatibility** — all `@router` and `@listen` methods in `TradingFlow` converted to `async def`; router method names without leading `_` (e.g. `route_after_market`) to comply with CrewAI 1.9+ `_methods` registry requirements; `await flow.akickoff()` used in the trading loop
+- **DB connection pooling** — `get_engine()` accepts `pool_size`, `max_overflow`, `pool_timeout`; reads from new `Settings` fields (`database_pool_size`, `database_max_overflow`, `database_pool_timeout`); pooling parameters applied only for non-SQLite URLs (SQLite uses `StaticPool` / default pool); `DatabaseService.__init__` now accepts either a URL string or an `Engine` object directly
+- **`StateProxy` unwrapping in `DatabaseService.save_cycle_summary()`** — `crewai.flow.flow.StateProxy` wrapper is transparently unwrapped via `_proxy_state` attribute so persistence works correctly with `akickoff()`
+- **Integration tests** (`tests/integration/`) — `test_full_cycle.py`: two async tests using in-memory SQLite (`StaticPool`) and a fully mocked `AsyncMock` exchange; verifies `CycleRecord` + `PortfolioRecord` persistence and no-exception completion; `test_backtest_regression.py`: two tests guarding `EMACrossoverStrategy` backtest metrics (trade count, Sharpe ratio, win rate) against regressions on deterministic bullish fixtures
+- **`integration-tests` CI job** in `.github/workflows/ci.yml` — runs after the `test` job (`needs: test`); executes `pytest -m integration`
+- **Docker support** — multi-stage `Dockerfile` (builder + runtime, non-root `trader` user, `/app/data` volume); `dashboard/Dockerfile` (deps → builder → runtime with `output:standalone`); `docker-compose.yml` (api + dashboard services, SQLite bind-mount, commented-out PostgreSQL alternative); `.dockerignore`
+- **`output: "standalone"` in `dashboard/next.config.ts`** — enables minimal Docker runtime bundle without full `node_modules`
+- **Makefile targets** — `docker-build`, `docker-up`, `docker-down`
+- **`.devcontainer/devcontainer.json`** — dev container with Python 3.12 + uv + Node 20; forwards ports 8000 and 3000; installs Ruff, mypy, Tailwind, ESLint extensions
+- **`examples/.env.paper`** and **`examples/.env.live`** — annotated environment templates for paper-trading and live-trading setups
+- **`release.yml` GitHub Actions workflow** — triggered on `v*.*.*` tags; runs tests, publishes to PyPI via Trusted Publishers (OIDC), pushes Docker images to GHCR, creates a GitHub Release with auto-generated notes
+- Version bumped to `v0.8.0`
+
+### Changed
+
+- `TradingFlow` router methods renamed from `_route_after_*` to `route_after_*` (no leading underscore) to comply with CrewAI 1.9+ method-registry requirements
+- `DatabaseService` type signature for `__init__` parameter broadened to accept `Engine | str | None`
+
+---
+
 ### Added
 
 #### Phase 7: Dashboard and Observability (v0.7.0)

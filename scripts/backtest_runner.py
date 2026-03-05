@@ -134,16 +134,25 @@ def main() -> int:
 
     # ---- Optional data fetch ------------------------------------------------
     if args.fetch:
+        import asyncio as _asyncio
+
         print(
             f"Fetching {args.symbol} {args.timeframe} from {args.from_date} to {args.to_date} ..."
         )
         exchange_svc = ExchangeService(exchange_id=args.exchange)
-        candles = exchange_svc.fetch_ohlcv_range(
-            symbol=args.symbol,
-            timeframe=args.timeframe,
-            since=from_dt,
-            until=to_dt,
-        )
+
+        async def _fetch() -> list:
+            try:
+                return await exchange_svc.fetch_ohlcv_range(
+                    symbol=args.symbol,
+                    timeframe=args.timeframe,
+                    since=from_dt,
+                    until=to_dt,
+                )
+            finally:
+                await exchange_svc.close()
+
+        candles = _asyncio.run(_fetch())
         saved = db_service.save_ohlcv_batch(candles)
         print(f"Cached {saved} candles to database.")
 

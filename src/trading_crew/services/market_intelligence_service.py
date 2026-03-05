@@ -54,7 +54,7 @@ class MarketIntelligenceService:
         )
         self._sentiment = sentiment_service
 
-    def run_cycle(
+    async def run_cycle(
         self,
         symbols: list[str],
         timeframe: str,
@@ -63,17 +63,17 @@ class MarketIntelligenceService:
         """Execute one full deterministic market-intelligence cycle."""
         analyses: dict[str, MarketAnalysis] = {}
         for symbol in symbols:
-            analysis = self._run_symbol(symbol, timeframe=timeframe, candle_limit=candle_limit)
+            analysis = await self._run_symbol(symbol, timeframe=timeframe, candle_limit=candle_limit)
             if analysis is not None:
                 analyses[symbol] = analysis
         return analyses
 
-    def _run_symbol(self, symbol: str, timeframe: str, candle_limit: int) -> MarketAnalysis | None:
+    async def _run_symbol(self, symbol: str, timeframe: str, candle_limit: int) -> MarketAnalysis | None:
         try:
-            ticker = self._exchange.fetch_ticker(symbol)
+            ticker = await self._exchange.fetch_ticker(symbol)
             self._db.save_ticker(ticker)
 
-            candles = self._exchange.fetch_ohlcv(
+            candles = await self._exchange.fetch_ohlcv(
                 symbol=symbol, timeframe=timeframe, limit=candle_limit
             )
             self._db.save_ohlcv_batch(candles)

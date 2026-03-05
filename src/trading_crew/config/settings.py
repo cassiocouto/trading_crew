@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     exchange_api_secret: str = ""
     exchange_password: str = ""
     exchange_sandbox: bool = True
+    # API-level rate-limit circuit breaker
+    exchange_rate_limit_threshold: int = Field(default=5, ge=1)
+    exchange_rate_limit_cooldown_seconds: int = Field(default=60, ge=1)
 
     # -- Symbols to trade -----------------------------------------------------
     symbols: list[str] = Field(default=["BTC/USDT"])
@@ -106,6 +109,10 @@ class Settings(BaseSettings):
 
     # -- Database -------------------------------------------------------------
     database_url: str = "sqlite:///trading_crew.db"
+    # Connection pool settings (used for non-SQLite databases like PostgreSQL)
+    database_pool_size: int = Field(default=5, ge=1)
+    database_max_overflow: int = Field(default=10, ge=0)
+    database_pool_timeout: int = Field(default=30, ge=1)
 
     # -- Telegram (optional) --------------------------------------------------
     telegram_bot_token: str = ""

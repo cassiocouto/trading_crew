@@ -1,7 +1,7 @@
 """Unit tests for TradingFlow (Phase 5: Flow Orchestrator).
 
 Tests cover:
-  - All routing paths (_route_after_market, _route_after_strategy, _route_after_execution)
+  - All routing paths (route_after_market, route_after_strategy, route_after_execution)
   - Budget degrade integration (STRATEGY_OFF, HARD_STOP)
   - Market data gate
   - Portfolio rollback on skip/failure
@@ -14,7 +14,9 @@ Tests cover:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from trading_crew.flows.trading_flow import TradingFlow
 from trading_crew.main import BudgetDegradeLevel, BudgetRuntimeState, RunPlan
@@ -108,6 +110,14 @@ def _make_order(symbol: str = "BTC/USDT") -> Order:
     return Order(id="oid-1", request=req, status=OrderStatus.FILLED)
 
 
+def _make_exec_svc_mock(**kwargs) -> MagicMock:
+    """Create an execution service mock with AsyncMock for async methods."""
+    mock = MagicMock(**kwargs)
+    mock.process_order_requests = AsyncMock(return_value=MagicMock(placed=[], filled=[], cancelled=[], failed=[]))
+    mock.poll_and_reconcile = AsyncMock(return_value=MagicMock(placed=[], filled=[], cancelled=[], failed=[]))
+    return mock
+
+
 def _build_flow(
     plan: RunPlan | None = None,
     portfolio: Portfolio | None = None,
@@ -117,6 +127,10 @@ def _build_flow(
     **service_overrides,
 ) -> TradingFlow:
     """Construct a TradingFlow with sensible mocked dependencies."""
+    # Ensure execution_service has async methods unless explicitly overridden
+    if "execution_service" not in service_overrides:
+        service_overrides["execution_service"] = _make_exec_svc_mock()
+
     flow = TradingFlow(
         cycle_number=1,
         symbols=["BTC/USDT"],
@@ -128,7 +142,7 @@ def _build_flow(
         market_svc=service_overrides.get("market_svc", MagicMock()),
         strategy_runner=service_overrides.get("strategy_runner", MagicMock(evaluate=MagicMock(return_value=[]))),
         risk_pipeline=service_overrides.get("risk_pipeline", MagicMock()),
-        execution_service=service_overrides.get("execution_service", MagicMock()),
+        execution_service=service_overrides["execution_service"],
         db_service=service_overrides.get("db_service", MagicMock()),
         notif_service=service_overrides.get("notif_service", MagicMock()),
         market_crew=service_overrides.get("market_crew", MagicMock()),
@@ -144,38 +158,45 @@ def _build_flow(
 # ---------------------------------------------------------------------------
 
 class TestFlowRouting:
-    def test_route_after_market_returns_halt_when_cb_tripped(self):
+    @pytest.mark.asyncio
+    async def test_route_after_market_returns_halt_when_cb_tripped(self):
         cb = MagicMock(is_tripped=True, trip_reason="drawdown exceeded")
         flow = _build_flow(circuit_breaker=cb)
-        assert flow._route_after_market() == "halt"
+        assert await flow.route_after_market() == "halt"
 
-    def test_route_after_market_returns_skip_strategy_when_not_due(self):
+    @pytest.mark.asyncio
+    async def test_route_after_market_returns_skip_strategy_when_not_due(self):
         flow = _build_flow(plan=_make_plan(run_strategy=False))
-        assert flow._route_after_market() == "skip_strategy"
+        assert await flow.route_after_market() == "skip_strategy"
 
-    def test_route_after_market_returns_skip_strategy_on_budget_strategy_off(self):
+    @pytest.mark.asyncio
+    async def test_route_after_market_returns_skip_strategy_on_budget_strategy_off(self):
         # _apply_degrade_to_plan already set run_strategy=False before kickoff
         flow = _build_flow(
             plan=_make_plan(run_strategy=False),
             budget=_make_budget(BudgetDegradeLevel.STRATEGY_OFF),
         )
-        assert flow._route_after_market() == "skip_strategy"
+        assert await flow.route_after_market() == "skip_strategy"
 
-    def test_route_after_market_returns_strategy_normally(self):
+    @pytest.mark.asyncio
+    async def test_route_after_market_returns_strategy_normally(self):
         flow = _build_flow(plan=_make_plan(run_strategy=True))
-        assert flow._route_after_market() == "strategy"
+        assert await flow.route_after_market() == "strategy"
 
-    def test_route_after_strategy_returns_skip_execution_when_not_due(self):
+    @pytest.mark.asyncio
+    async def test_route_after_strategy_returns_skip_execution_when_not_due(self):
         flow = _build_flow(plan=_make_plan(run_execution=False))
-        assert flow._route_after_strategy() == "skip_execution"
+        assert await flow.route_after_strategy() == "skip_execution"
 
-    def test_route_after_strategy_returns_execution_normally(self):
+    @pytest.mark.asyncio
+    async def test_route_after_strategy_returns_execution_normally(self):
         flow = _build_flow(plan=_make_plan(run_execution=True))
-        assert flow._route_after_strategy() == "execution"
+        assert await flow.route_after_strategy() == "execution"
 
-    def test_route_after_execution_always_returns_post_cycle(self):
+    @pytest.mark.asyncio
+    async def test_route_after_execution_always_returns_post_cycle(self):
         flow = _build_flow()
-        assert flow._route_after_execution() == "post_cycle"
+        assert await flow.route_after_execution() == "post_cycle"
 
 
 # ---------------------------------------------------------------------------
@@ -214,8 +235,9 @@ class TestMarketDataGate:
 # ---------------------------------------------------------------------------
 
 class TestBudgetDegrade:
-    def test_hard_stop_poll_fires_when_execution_skipped(self):
-        exec_svc = MagicMock()
+    @pytest.mark.asyncio
+    async def test_hard_stop_poll_fires_when_execution_skipped(self):
+        exec_svc = _make_exec_svc_mock()
         portfolio = _make_portfolio()
         flow = _build_flow(
             plan=_make_plan(run_execution=False),
@@ -226,11 +248,12 @@ class TestBudgetDegrade:
         )
         # Simulate skip_execution path: snapshot is non-None
         flow._portfolio_snapshot = portfolio.model_copy(deep=True)
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         exec_svc.poll_and_reconcile.assert_called_once_with(portfolio)
 
-    def test_hard_stop_poll_skipped_when_flag_off(self):
-        exec_svc = MagicMock()
+    @pytest.mark.asyncio
+    async def test_hard_stop_poll_skipped_when_flag_off(self):
+        exec_svc = _make_exec_svc_mock()
         portfolio = _make_portfolio()
         flow = _build_flow(
             plan=_make_plan(run_execution=False),
@@ -240,11 +263,12 @@ class TestBudgetDegrade:
             settings=_make_settings(non_llm_monitor_on_hard_stop=False),
         )
         flow._portfolio_snapshot = portfolio.model_copy(deep=True)
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         exec_svc.poll_and_reconcile.assert_not_called()
 
-    def test_normal_degrade_skips_hard_stop_poll(self):
-        exec_svc = MagicMock()
+    @pytest.mark.asyncio
+    async def test_normal_degrade_skips_hard_stop_poll(self):
+        exec_svc = _make_exec_svc_mock()
         portfolio = _make_portfolio()
         flow = _build_flow(
             plan=_make_plan(run_execution=False),
@@ -253,7 +277,7 @@ class TestBudgetDegrade:
             execution_service=exec_svc,
         )
         flow._portfolio_snapshot = portfolio.model_copy(deep=True)
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         exec_svc.poll_and_reconcile.assert_not_called()
 
 
@@ -262,29 +286,32 @@ class TestBudgetDegrade:
 # ---------------------------------------------------------------------------
 
 class TestPortfolioRollback:
-    def test_rollback_restores_portfolio_when_snapshot_non_none(self):
+    @pytest.mark.asyncio
+    async def test_rollback_restores_portfolio_when_snapshot_non_none(self):
         original_balance = 9_000.0
         portfolio = _make_portfolio(balance=8_000.0)  # after tentative reservation
         snapshot = _make_portfolio(balance=original_balance)
         flow = _build_flow(portfolio=portfolio, plan=_make_plan(run_execution=False))
         flow._portfolio_snapshot = snapshot
         flow.state.order_requests = [MagicMock()]  # non-empty triggers rollback
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         assert flow._portfolio.balance_quote == original_balance
 
-    def test_no_rollback_when_snapshot_is_none(self):
+    @pytest.mark.asyncio
+    async def test_no_rollback_when_snapshot_is_none(self):
         portfolio = _make_portfolio(balance=8_000.0)
         flow = _build_flow(portfolio=portfolio)
         flow._portfolio_snapshot = None
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         assert flow._portfolio.balance_quote == 8_000.0
 
-    def test_snapshot_cleared_after_rollback(self):
+    @pytest.mark.asyncio
+    async def test_snapshot_cleared_after_rollback(self):
         portfolio = _make_portfolio()
         snapshot = portfolio.model_copy(deep=True)
         flow = _build_flow(portfolio=portfolio, plan=_make_plan(run_execution=False))
         flow._portfolio_snapshot = snapshot
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         assert flow._portfolio_snapshot is None
 
 
@@ -321,14 +348,15 @@ class TestEventHooks:
         notif.notify_error.assert_called_once()
         assert "drawdown 30%" in notif.notify_error.call_args[0][0]
 
-    def test_on_stop_loss_triggered_submits_sell_order(self):
-        exec_svc = MagicMock()
+    @pytest.mark.asyncio
+    async def test_on_stop_loss_triggered_submits_sell_order(self):
+        exec_svc = _make_exec_svc_mock()
         notif = MagicMock()
         portfolio = _make_portfolio()
         portfolio.positions["BTC/USDT"] = _make_position(current_price=45_000.0, stop_loss_price=46_000.0)
         flow = _build_flow(portfolio=portfolio, execution_service=exec_svc, notif_service=notif)
         pos = portfolio.positions["BTC/USDT"]
-        flow._on_stop_loss_triggered("BTC/USDT", pos, 45_000.0)
+        await flow._on_stop_loss_triggered("BTC/USDT", pos, 45_000.0)
         exec_svc.process_order_requests.assert_called_once()
         args = exec_svc.process_order_requests.call_args[0]
         reqs, _port = args[0], args[1]
@@ -336,11 +364,12 @@ class TestEventHooks:
         assert reqs[0].side == OrderSide.SELL
         notif.notify_error.assert_called_once()
 
-    def test_post_cycle_hooks_fires_on_order_filled_for_each_fill(self):
+    @pytest.mark.asyncio
+    async def test_post_cycle_hooks_fires_on_order_filled_for_each_fill(self):
         db = MagicMock()
         flow = _build_flow(db_service=db)
         flow.state.filled_orders = [_make_order("BTC/USDT"), _make_order("ETH/USDT")]
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         assert db.save_pnl_snapshot.call_count == 2
 
 
@@ -349,51 +378,55 @@ class TestEventHooks:
 # ---------------------------------------------------------------------------
 
 class TestStopLossMonitoring:
-    def test_stop_loss_fires_when_price_below_stop(self):
+    @pytest.mark.asyncio
+    async def test_stop_loss_fires_when_price_below_stop(self):
         portfolio = _make_portfolio()
         portfolio.positions["BTC/USDT"] = _make_position(
             current_price=44_000.0, stop_loss_price=45_000.0
         )
-        exec_svc = MagicMock()
+        exec_svc = _make_exec_svc_mock()
         flow = _build_flow(
             portfolio=portfolio,
             execution_service=exec_svc,
             settings=_make_settings(stop_loss_monitoring_enabled=True),
         )
         flow.state.market_analyses = {"BTC/USDT": _make_analysis(current_price=44_000.0)}
-        flow._check_stop_losses()
+        await flow._check_stop_losses()
         exec_svc.process_order_requests.assert_called_once()
 
-    def test_stop_loss_does_not_fire_when_price_above_stop(self):
+    @pytest.mark.asyncio
+    async def test_stop_loss_does_not_fire_when_price_above_stop(self):
         portfolio = _make_portfolio()
         portfolio.positions["BTC/USDT"] = _make_position(
             current_price=51_000.0, stop_loss_price=45_000.0
         )
-        exec_svc = MagicMock()
+        exec_svc = _make_exec_svc_mock()
         flow = _build_flow(
             portfolio=portfolio,
             execution_service=exec_svc,
             settings=_make_settings(stop_loss_monitoring_enabled=True),
         )
         flow.state.market_analyses = {"BTC/USDT": _make_analysis(current_price=51_000.0)}
-        flow._check_stop_losses()
+        await flow._check_stop_losses()
         exec_svc.process_order_requests.assert_not_called()
 
-    def test_stop_loss_skipped_when_no_stop_price_set(self):
+    @pytest.mark.asyncio
+    async def test_stop_loss_skipped_when_no_stop_price_set(self):
         portfolio = _make_portfolio()
         portfolio.positions["BTC/USDT"] = _make_position(stop_loss_price=None)
-        exec_svc = MagicMock()
+        exec_svc = _make_exec_svc_mock()
         flow = _build_flow(portfolio=portfolio, execution_service=exec_svc)
         flow.state.market_analyses = {"BTC/USDT": _make_analysis(current_price=44_000.0)}
-        flow._check_stop_losses()
+        await flow._check_stop_losses()
         exec_svc.process_order_requests.assert_not_called()
 
-    def test_stop_loss_uses_cached_analyses_when_market_skipped(self):
+    @pytest.mark.asyncio
+    async def test_stop_loss_uses_cached_analyses_when_market_skipped(self):
         portfolio = _make_portfolio()
         portfolio.positions["BTC/USDT"] = _make_position(
             current_price=44_000.0, stop_loss_price=45_000.0
         )
-        exec_svc = MagicMock()
+        exec_svc = _make_exec_svc_mock()
         cached = {"BTC/USDT": _make_analysis(current_price=44_000.0)}
         flow = _build_flow(
             portfolio=portfolio,
@@ -402,33 +435,35 @@ class TestStopLossMonitoring:
         )
         # Market phase was skipped → state.market_analyses is empty
         flow.state.market_analyses = {}
-        flow._check_stop_losses()
+        await flow._check_stop_losses()
         exec_svc.process_order_requests.assert_called_once()
 
-    def test_stop_loss_skipped_when_no_analysis_for_symbol(self):
+    @pytest.mark.asyncio
+    async def test_stop_loss_skipped_when_no_analysis_for_symbol(self):
         portfolio = _make_portfolio()
         portfolio.positions["BTC/USDT"] = _make_position(
             current_price=44_000.0, stop_loss_price=45_000.0
         )
-        exec_svc = MagicMock()
+        exec_svc = _make_exec_svc_mock()
         flow = _build_flow(portfolio=portfolio, execution_service=exec_svc)
         flow.state.market_analyses = {}  # no data, no cache
-        flow._check_stop_losses()
+        await flow._check_stop_losses()
         exec_svc.process_order_requests.assert_not_called()
 
-    def test_stop_loss_monitoring_disabled_skips_check(self):
+    @pytest.mark.asyncio
+    async def test_stop_loss_monitoring_disabled_skips_check(self):
         portfolio = _make_portfolio()
         portfolio.positions["BTC/USDT"] = _make_position(
             current_price=44_000.0, stop_loss_price=45_000.0
         )
-        exec_svc = MagicMock()
+        exec_svc = _make_exec_svc_mock()
         flow = _build_flow(
             portfolio=portfolio,
             execution_service=exec_svc,
             settings=_make_settings(stop_loss_monitoring_enabled=False),
         )
         flow.state.market_analyses = {"BTC/USDT": _make_analysis(current_price=44_000.0)}
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         exec_svc.process_order_requests.assert_not_called()
 
 
@@ -459,7 +494,8 @@ class TestUpdatePositionPrices:
 # ---------------------------------------------------------------------------
 
 class TestCyclePersistence:
-    def test_save_cycle_summary_called_when_enabled(self):
+    @pytest.mark.asyncio
+    async def test_save_cycle_summary_called_when_enabled(self):
         db = MagicMock()
         portfolio = _make_portfolio()
         flow = _build_flow(
@@ -467,7 +503,7 @@ class TestCyclePersistence:
             db_service=db,
             settings=_make_settings(save_cycle_history=True),
         )
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         db.save_cycle_summary.assert_called_once()
         # CrewAI's flow.state property creates a new wrapper on each access so
         # identity checks fail. Verify by cycle_number and portfolio identity.
@@ -475,18 +511,20 @@ class TestCyclePersistence:
         assert args[0].cycle_number == 1
         assert args[1] is portfolio
 
-    def test_save_cycle_summary_skipped_when_disabled(self):
+    @pytest.mark.asyncio
+    async def test_save_cycle_summary_skipped_when_disabled(self):
         db = MagicMock()
         flow = _build_flow(
             db_service=db,
             settings=_make_settings(save_cycle_history=False),
         )
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         db.save_cycle_summary.assert_not_called()
 
-    def test_save_portfolio_always_called_in_post_cycle(self):
+    @pytest.mark.asyncio
+    async def test_save_portfolio_always_called_in_post_cycle(self):
         db = MagicMock()
         portfolio = _make_portfolio()
         flow = _build_flow(portfolio=portfolio, db_service=db)
-        flow.post_cycle_hooks()
+        await flow.post_cycle_hooks()
         db.save_portfolio.assert_called_once_with(portfolio)

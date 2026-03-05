@@ -1,0 +1,71 @@
+# .dockerignore — files excluded from the Docker build context
+#
+# Keep the build context small: omit dev tooling, caches, test data,
+# documentation and anything that shouldn't end up in production images.
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Python caches and build artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+htmlcov/
+.coverage
+coverage.xml
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test files (not needed at runtime)
+tests/
+
+# Documentation
+docs/
+site/
+*.md
+!README.md
+
+# Development configuration
+.env
+.env.*
+!.env.example
+.pre-commit-config.yaml
+.editorconfig
+
+# IDE and OS artefacts
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local data and secrets
+data/
+*.db
+*.sqlite
+*.key
+*.pem
+secrets/
+
+# CI / GitHub Actions
+.github/
+
+# Makefile (not needed inside container)
+Makefile
+
+# Dashboard node artefacts (excluded from backend image context)
+dashboard/node_modules/
+dashboard/.next/
+dashboard/out/

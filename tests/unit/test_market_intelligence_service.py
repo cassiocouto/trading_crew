@@ -14,7 +14,7 @@ from trading_crew.services.sentiment_service import SentimentSnapshot, Sentiment
 class _ExchangeStub:
     exchange_id = "binance"
 
-    def fetch_ticker(self, symbol: str) -> Ticker:
+    async def fetch_ticker(self, symbol: str) -> Ticker:
         return Ticker(
             symbol=symbol,
             exchange=self.exchange_id,
@@ -25,7 +25,7 @@ class _ExchangeStub:
             timestamp=datetime.now(UTC),
         )
 
-    def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 100) -> list[OHLCV]:
+    async def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 100) -> list[OHLCV]:
         start = datetime.now(UTC) - timedelta(minutes=limit)
         candles: list[OHLCV] = []
         for i in range(limit):
@@ -78,7 +78,8 @@ class _SentimentStub:
 
 
 @pytest.mark.unit
-def test_run_cycle_fetches_analyzes_and_stores() -> None:
+@pytest.mark.asyncio
+async def test_run_cycle_fetches_analyzes_and_stores() -> None:
     exchange = _ExchangeStub()
     db = _DbStub()
     sentiment = _SentimentStub()
@@ -86,7 +87,7 @@ def test_run_cycle_fetches_analyzes_and_stores() -> None:
         exchange, db, sentiment_service=sentiment
     )
 
-    analyses = service.run_cycle(
+    analyses = await service.run_cycle(
         symbols=["BTC/USDT", "ETH/USDT"],
         timeframe="1h",
         candle_limit=60,

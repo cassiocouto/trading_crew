@@ -2,10 +2,15 @@
 
 Wraps the ExchangeService and exposes ticker, OHLCV, and order operations
 to CrewAI agents. Agents call these tools through natural language descriptions.
+
+Each tool exposes both a synchronous ``_run()`` (sync fallback, wraps
+``asyncio.run``) and an ``async def _arun()`` (native async, used by CrewAI
+when dispatching from an async context via ``akickoff``).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from crewai.tools import BaseTool
@@ -25,7 +30,10 @@ class FetchTickerTool(BaseTool):
     exchange_service: ExchangeService = Field(exclude=True)
 
     def _run(self, symbol: str) -> str:
-        ticker = self.exchange_service.fetch_ticker(symbol.strip())
+        return asyncio.run(self._arun(symbol))
+
+    async def _arun(self, symbol: str) -> str:
+        ticker = await self.exchange_service.fetch_ticker(symbol.strip())
         return json.dumps(
             {
                 "symbol": ticker.symbol,
@@ -53,6 +61,9 @@ class FetchOHLCVTool(BaseTool):
     exchange_service: ExchangeService = Field(exclude=True)
 
     def _run(self, input_str: str) -> str:
+        return asyncio.run(self._arun(input_str))
+
+    async def _arun(self, input_str: str) -> str:
         try:
             params = json.loads(input_str)
         except json.JSONDecodeError:
@@ -62,7 +73,7 @@ class FetchOHLCVTool(BaseTool):
         timeframe = params.get("timeframe", "1h")
         limit = int(params.get("limit", 100))
 
-        candles = self.exchange_service.fetch_ohlcv(symbol, timeframe, limit)
+        candles = await self.exchange_service.fetch_ohlcv(symbol, timeframe, limit)
         return json.dumps(
             [
                 {
@@ -94,6 +105,9 @@ class PlaceOrderTool(BaseTool):
     _REQUIRED_KEYS = ("symbol", "side", "order_type", "amount")
 
     def _run(self, input_str: str) -> str:
+        return asyncio.run(self._arun(input_str))
+
+    async def _arun(self, input_str: str) -> str:
         from trading_crew.models.order import OrderRequest, OrderSide, OrderType
 
         try:
@@ -118,7 +132,7 @@ class PlaceOrderTool(BaseTool):
             return json.dumps({"error": f"Invalid order parameters: {e}"})
 
         try:
-            order = self.exchange_service.create_order(request)
+            order = await self.exchange_service.create_order(request)
         except Exception as e:
             return json.dumps({"error": f"Order execution failed: {e}"})
 
@@ -146,6 +160,9 @@ class FetchOrderStatusTool(BaseTool):
     exchange_service: ExchangeService = Field(exclude=True)
 
     def _run(self, input_str: str) -> str:
+        return asyncio.run(self._arun(input_str))
+
+    async def _arun(self, input_str: str) -> str:
         try:
             params = json.loads(input_str)
         except json.JSONDecodeError as e:
@@ -158,7 +175,7 @@ class FetchOrderStatusTool(BaseTool):
             return json.dumps({"error": "Both 'order_id' and 'symbol' are required"})
 
         try:
-            raw = self.exchange_service.fetch_order_status(order_id, symbol)
+            raw = await self.exchange_service.fetch_order_status(order_id, symbol)
         except Exception as e:
             return json.dumps({"error": f"Failed to fetch order status: {e}"})
 
@@ -187,6 +204,9 @@ class CancelOrderTool(BaseTool):
     exchange_service: ExchangeService = Field(exclude=True)
 
     def _run(self, input_str: str) -> str:
+        return asyncio.run(self._arun(input_str))
+
+    async def _arun(self, input_str: str) -> str:
         try:
             params = json.loads(input_str)
         except json.JSONDecodeError as e:
@@ -199,7 +219,7 @@ class CancelOrderTool(BaseTool):
             return json.dumps({"error": "Both 'order_id' and 'symbol' are required"})
 
         try:
-            self.exchange_service.cancel_order(order_id, symbol)
+            await self.exchange_service.cancel_order(order_id, symbol)
         except Exception as e:
             return json.dumps({"error": f"Failed to cancel order: {e}"})
 

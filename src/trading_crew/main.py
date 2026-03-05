@@ -2,7 +2,7 @@
 
 Initializes all services and runs the trading loop.
 
-CURRENT STATUS (v0.7.0 — Phase 7: Dashboard and Observability):
+CURRENT STATUS (v0.8.0 — Phase 8: Hardening and Optimization):
   Each cycle is orchestrated by ``TradingFlow`` — a CrewAI Flow that wires
   the market, strategy, and execution phases with typed routing, event hooks
   (on_order_filled, on_circuit_breaker_activated, on_stop_loss_triggered),
@@ -23,6 +23,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import signal
 import sys
@@ -71,8 +72,6 @@ from trading_crew.strategies.rsi_range import RSIRangeStrategy
 
 logger = logging.getLogger("trading_crew")
 
-_shutdown_requested = False
-
 
 class BudgetDegradeLevel(StrEnum):
     """Runtime degrade stage for daily token budget controls."""
@@ -115,11 +114,22 @@ def _setup_logging(level: str) -> None:
     )
 
 
-def _handle_shutdown(signum: int, frame: object) -> None:
-    """Handle graceful shutdown on SIGINT/SIGTERM."""
-    global _shutdown_requested
-    _shutdown_requested = True
-    logger.info("Shutdown requested (signal %d). Finishing current cycle...", signum)
+def _make_shutdown_handler(
+    shutdown_event: asyncio.Event, loop: asyncio.AbstractEventLoop
+):
+    """Return a cross-platform SIGINT/SIGTERM handler that sets an asyncio.Event.
+
+    Uses ``loop.call_soon_threadsafe`` so the event is set safely from the
+    signal handler context (which may run on a different thread on some
+    platforms). This avoids ``loop.add_signal_handler`` which is Unix-only and
+    raises ``NotImplementedError`` on Windows.
+    """
+
+    def _handle(signum: int, frame: object) -> None:
+        logger.info("Shutdown requested (signal %d). Finishing current cycle...", signum)
+        loop.call_soon_threadsafe(shutdown_event.set)
+
+    return _handle
 
 
 def _load_yaml(path: str) -> dict[str, dict[str, str]]:
@@ -387,13 +397,13 @@ def _rollback_portfolio(
     )
 
 
-def main() -> None:
-    """Main entry point — initialize services and run the scaffold trading loop."""
+async def main_async() -> None:
+    """Async main entry point — initialize services and run the trading loop."""
     settings = get_settings()
     _setup_logging(settings.log_level)
 
     logger.info("=" * 60)
-    logger.info("Trading Crew v0.7.0 starting (Phase 7: Dashboard and Observability)")
+    logger.info("Trading Crew v0.8.0 starting (Phase 8: Hardening and Optimization)")
     logger.info("Mode: %s", settings.trading_mode.value)
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))
@@ -446,6 +456,9 @@ def main() -> None:
     if settings.is_live:
         logger.warning("LIVE TRADING MODE — real orders will be placed on %s", settings.exchange_id)
 
+    shutdown_event = asyncio.Event()
+    loop = asyncio.get_event_loop()
+    _handle_shutdown = _make_shutdown_handler(shutdown_event, loop)
     signal.signal(signal.SIGINT, _handle_shutdown)
     signal.signal(signal.SIGTERM, _handle_shutdown)
 
@@ -589,7 +602,7 @@ def main() -> None:
     # price fallback when the market phase is skipped this cycle.
     last_market_analyses: dict = {}
 
-    while not _shutdown_requested:
+    while not shutdown_event.is_set():
         cycle += 1
         logger.info("--- Cycle %d ---", cycle)
 
@@ -626,7 +639,7 @@ def main() -> None:
                 execution_crew=execution_crew,
                 settings=settings,
             )
-            flow.kickoff()
+            await flow.akickoff()
 
             # Update cross-cycle market analysis cache from this cycle's state
             if plan.run_market and flow.state.market_analyses:
@@ -662,9 +675,9 @@ def main() -> None:
             logger.exception("Error in trading cycle %d", cycle)
             notification_service.notify_error(f"Error in cycle {cycle}")
 
-        if not _shutdown_requested:
+        if not shutdown_event.is_set():
             logger.debug("Sleeping %ds until next cycle...", settings.loop_interval_seconds)
-            time.sleep(settings.loop_interval_seconds)
+            await asyncio.sleep(settings.loop_interval_seconds)
 
     # -- Shutdown -------------------------------------------------------------
     logger.info("Shutting down gracefully...")
@@ -673,8 +686,17 @@ def main() -> None:
         logger.info("Final portfolio state persisted.")
     except Exception:
         logger.exception("Failed to persist portfolio on shutdown")
+    try:
+        await exchange_service.close()
+    except Exception:
+        logger.exception("Failed to close exchange connection")
     notification_service.notify("Trading Crew stopped.")
     logger.info("Goodbye.")
+
+
+def main() -> None:
+    """Synchronous entry point — wraps the async main in an event loop."""
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":

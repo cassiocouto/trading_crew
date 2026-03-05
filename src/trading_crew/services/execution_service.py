@@ -169,7 +169,7 @@ class ExecutionService:
 
     # -- Public API -----------------------------------------------------------
 
-    def process_order_requests(
+    async def process_order_requests(
         self,
         order_requests: list[OrderRequest],
         portfolio: Portfolio,
@@ -205,7 +205,7 @@ class ExecutionService:
         logger.info("Processing %d order request(s)", len(order_requests))
 
         for req in order_requests:
-            self._process_single_request(req, portfolio, result)
+            await self._process_single_request(req, portfolio, result)
 
         logger.info(
             "Order placement complete: placed=%d, filled=%d, failed=%d",
@@ -215,7 +215,7 @@ class ExecutionService:
         )
         return result
 
-    def poll_and_reconcile(self, portfolio: Portfolio) -> ExecutionResult:
+    async def poll_and_reconcile(self, portfolio: Portfolio) -> ExecutionResult:
         """Poll open orders and reconcile fills / cancel stale orders.
 
         Fetches all open orders from the DB, checks their exchange status, and:
@@ -244,7 +244,7 @@ class ExecutionService:
         logger.info("Polling %d open order(s)", len(open_records))
 
         for record in open_records:
-            self._poll_single_order(record, portfolio, result)
+            await self._poll_single_order(record, portfolio, result)
 
         if result.filled or result.cancelled:
             logger.info(
@@ -263,7 +263,7 @@ class ExecutionService:
 
     # -- Order Request Processing ---------------------------------------------
 
-    def _process_single_request(
+    async def _process_single_request(
         self,
         req: OrderRequest,
         portfolio: Portfolio,
@@ -271,7 +271,7 @@ class ExecutionService:
     ) -> None:
         """Handle one order request through the full placement pipeline."""
         # 1. Validate
-        valid, reason = self._validate_order(req, portfolio)
+        valid, reason = await self._validate_order(req, portfolio)
         if not valid:
             logger.warning(
                 "Order rejected (validation): %s %s %.6f — %s",
@@ -289,7 +289,7 @@ class ExecutionService:
             return
 
         # 2. Normalize precision
-        normalized_req = self._normalize_precision(req)
+        normalized_req = await self._normalize_precision(req)
 
         # 3. Select exchange (routing stub)
         _exchange_id = self._select_exchange(normalized_req)
@@ -308,7 +308,7 @@ class ExecutionService:
 
         # 5. Place on exchange
         try:
-            order = self._exchange.create_order(normalized_req)
+            order = await self._exchange.create_order(normalized_req)
         except Exception as exc:
             error_msg = str(exc)
             logger.error(
@@ -397,7 +397,7 @@ class ExecutionService:
                     f"{normalized_req.side.value}"
                 )
 
-    def _poll_single_order(
+    async def _poll_single_order(
         self,
         record: object,
         portfolio: Portfolio,
@@ -413,7 +413,7 @@ class ExecutionService:
         created_at = record.created_at or datetime.now(UTC)
 
         try:
-            raw = self._exchange.fetch_order_status(order_id, symbol)
+            raw = await self._exchange.fetch_order_status(order_id, symbol)
         except Exception as exc:
             logger.error(
                 "Failed to poll order %s (%s): %s",
@@ -485,7 +485,7 @@ class ExecutionService:
             )
             # Check if partial fill has gone stale
             if age_minutes >= self._stale_partial_minutes:
-                self._cancel_stale_order(
+                await self._cancel_stale_order(
                     order_id=order_id,
                     symbol=symbol,
                     record=record,
@@ -499,7 +499,7 @@ class ExecutionService:
 
         # -- Stale fully-open order ---
         if new_status in (OrderStatus.OPEN, OrderStatus.PENDING) and age_minutes >= self._stale_minutes:
-            self._cancel_stale_order(
+            await self._cancel_stale_order(
                 order_id=order_id,
                 symbol=symbol,
                 record=record,
@@ -527,7 +527,7 @@ class ExecutionService:
 
     # -- Stale Order Cancellation ---------------------------------------------
 
-    def _cancel_stale_order(
+    async def _cancel_stale_order(
         self,
         order_id: str,
         symbol: str,
@@ -543,7 +543,7 @@ class ExecutionService:
             return
 
         try:
-            self._exchange.cancel_order(order_id, symbol)
+            await self._exchange.cancel_order(order_id, symbol)
         except Exception as exc:
             logger.error(
                 "Failed to cancel stale order %s (%s): %s",
@@ -845,7 +845,7 @@ class ExecutionService:
 
     # -- Validation & Precision -----------------------------------------------
 
-    def _validate_order(
+    async def _validate_order(
         self, req: OrderRequest, portfolio: Portfolio
     ) -> tuple[bool, str]:
         """Validate an order request against balance and exchange constraints.
@@ -862,7 +862,7 @@ class ExecutionService:
         # For MARKET BUY orders estimate the cost from the current ask price
         if req.order_type == OrderType.MARKET and req.side == OrderSide.BUY:
             try:
-                ticker = self._exchange.fetch_ticker(req.symbol)
+                ticker = await self._exchange.fetch_ticker(req.symbol)
                 price = ticker.ask if ticker.ask > 0 else ticker.last
             except Exception as exc:
                 logger.debug(
@@ -894,7 +894,7 @@ class ExecutionService:
 
         # Exchange min-size constraints
         try:
-            limits = self._exchange.get_market_limits(req.symbol)
+            limits = await self._exchange.get_market_limits(req.symbol)
             amount_min = limits.get("amount_min")
             cost_min = limits.get("cost_min")
 
@@ -914,14 +914,14 @@ class ExecutionService:
 
         return True, ""
 
-    def _normalize_precision(self, req: OrderRequest) -> OrderRequest:
+    async def _normalize_precision(self, req: OrderRequest) -> OrderRequest:
         """Round amount and price to exchange-required precision.
 
         Returns a new ``OrderRequest`` with rounded values if markets are
         loaded; otherwise returns the original request unchanged.
         """
         try:
-            rounded_amount, rounded_price = self._exchange.normalize_order_precision(
+            rounded_amount, rounded_price = await self._exchange.normalize_order_precision(
                 req.symbol, req.amount, req.price
             )
             if rounded_amount != req.amount or rounded_price != req.price:

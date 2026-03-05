@@ -50,7 +50,12 @@ class DatabaseService:
     """
 
     def __init__(self, database_url: str | None = None) -> None:
-        self._engine = get_engine(database_url)
+        from sqlalchemy.engine import Engine as _Engine  # local import avoids circular
+
+        if isinstance(database_url, _Engine):
+            self._engine = database_url
+        else:
+            self._engine = get_engine(database_url)
 
     # -- Market Data ----------------------------------------------------------
 
@@ -520,6 +525,9 @@ class DatabaseService:
         from trading_crew.models.cycle import CycleState
         from trading_crew.models.portfolio import Portfolio
 
+        # CrewAI wraps self.state in a StateProxy in some versions; unwrap it.
+        if hasattr(state, "_proxy_state"):
+            state = object.__getattribute__(state, "_proxy_state")  # type: ignore[union-attr]
         if not isinstance(state, CycleState):
             raise TypeError(f"Expected CycleState, got {type(state)}")
         if not isinstance(portfolio, Portfolio):

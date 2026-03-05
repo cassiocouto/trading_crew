@@ -1,0 +1,65 @@
+{
+  // Dev container for trading-crew
+  // Opens a fully configured Python + Node development environment in VS Code
+  // or GitHub Codespaces.
+  //
+  // Features installed:
+  //   • Python 3.12 with uv (fast package manager)
+  //   • Node 20 (for the Next.js dashboard)
+  //   • Common VS Code extensions for Python, lint, and formatting
+  //
+  // On create: uv sync installs all Python dev dependencies.
+  // On create: npm install sets up the dashboard Node modules.
+
+  "name": "trading-crew",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/astral-sh/uv:1": {}
+  },
+
+  "postCreateCommand": "uv sync --all-extras && cd dashboard && npm install",
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.mypy-type-checker",
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml",
+        "bradlc.vscode-tailwindcss",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "GitHub.copilot"
+      ]
+    }
+  },
+
+  // Forward API (8000) and dashboard (3000) ports automatically
+  "forwardPorts": [8000, 3000],
+
+  "portsAttributes": {
+    "8000": {
+      "label": "FastAPI (trading-crew API)",
+      "onAutoForward": "notify"
+    },
+    "3000": {
+      "label": "Next.js Dashboard",
+      "onAutoForward": "openBrowser"
+    }
+  },
+
+  // Mount the workspace to /workspaces/trading_crew
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/trading_crew,type=bind",
+  "workspaceFolder": "/workspaces/trading_crew"
+}

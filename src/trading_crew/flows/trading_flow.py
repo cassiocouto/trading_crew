@@ -6,14 +6,14 @@ concerns (budget refresh, token accumulation, sleep interval).
 
 Routing summary::
 
-    market_phase() ──► _route_after_market()
+    market_phase() ──► route_after_market()
         ├── "halt"          ──► circuit_breaker_halt()   [terminal]
         ├── "skip_strategy" ──► post_cycle_hooks()
         └── "strategy"      ──► strategy_phase()
-                                    └──► _route_after_strategy()
+                                    └──► route_after_strategy()
                                             ├── "skip_execution" ──► post_cycle_hooks()
                                             └── "execution"      ──► execution_phase()
-                                                                        └──► "post_cycle"
+                                                                        └──► route_after_execution()
                                                                                 └──► post_cycle_hooks()
 """
 
@@ -124,7 +124,7 @@ class TradingFlow(Flow[CycleState]):
     # -------------------------------------------------------------------------
 
     @start()
-    def market_phase(self) -> None:
+    async def market_phase(self) -> None:
         """Run the market intelligence pipeline (deterministic and/or CrewAI)."""
         if not self._plan.run_market:
             logger.info("[1/3] Skipping Market Phase (interval not due)")
@@ -134,7 +134,7 @@ class TradingFlow(Flow[CycleState]):
             MarketPipelineMode.DETERMINISTIC,
             MarketPipelineMode.HYBRID,
         ):
-            self.state.market_analyses = self._market_svc.run_cycle(
+            self.state.market_analyses = await self._market_svc.run_cycle(
                 symbols=self._settings.symbols,
                 timeframe=self._settings.default_timeframe,
                 candle_limit=self._settings.market_data_candle_limit,
@@ -165,7 +165,7 @@ class TradingFlow(Flow[CycleState]):
         self._update_position_prices()
 
     @router(market_phase)
-    def _route_after_market(self) -> str:
+    async def route_after_market(self) -> str:
         """Route after market phase.
 
         Returns:
@@ -180,7 +180,7 @@ class TradingFlow(Flow[CycleState]):
         return "strategy"
 
     @listen("strategy")
-    def strategy_phase(self) -> None:
+    async def strategy_phase(self) -> None:
         """Run the strategy and risk pipeline, building order requests."""
         if self._settings.strategy_pipeline_mode in (
             StrategyPipelineMode.DETERMINISTIC,
@@ -234,7 +234,7 @@ class TradingFlow(Flow[CycleState]):
             )
 
     @router(strategy_phase)
-    def _route_after_strategy(self) -> str:
+    async def route_after_strategy(self) -> str:
         """Route after strategy phase.
 
         Returns:
@@ -246,7 +246,7 @@ class TradingFlow(Flow[CycleState]):
         return "execution"
 
     @listen("execution")
-    def execution_phase(self) -> None:
+    async def execution_phase(self) -> None:
         """Place new orders and poll existing ones for fills/cancellations."""
         logger.info("[3/3] Running Execution pipeline...")
         try:
@@ -254,10 +254,10 @@ class TradingFlow(Flow[CycleState]):
                 ExecutionPipelineMode.DETERMINISTIC,
                 ExecutionPipelineMode.HYBRID,
             ):
-                exec_result = self._execution_service.process_order_requests(
+                exec_result = await self._execution_service.process_order_requests(
                     self.state.order_requests, self._portfolio
                 )
-                poll_result = self._execution_service.poll_and_reconcile(self._portfolio)
+                poll_result = await self._execution_service.poll_and_reconcile(self._portfolio)
 
                 self.state.orders = exec_result.placed + poll_result.placed
                 self.state.filled_orders = exec_result.filled + poll_result.filled
@@ -305,11 +305,11 @@ class TradingFlow(Flow[CycleState]):
             self._notif.notify_error("Execution pipeline failed — reservations rolled back")
 
     @router(execution_phase)
-    def _route_after_execution(self) -> str:
+    async def route_after_execution(self) -> str:
         return "post_cycle"
 
     @listen(or_("skip_strategy", "skip_execution", "post_cycle"))
-    def post_cycle_hooks(self) -> None:
+    async def post_cycle_hooks(self) -> None:
         """Run post-cycle finalisation: rollback, hooks, stop-loss, persistence."""
         # 1. Roll back tentative portfolio reservations when execution was
         #    skipped (snapshot is non-None) or when this path is reached from
@@ -336,7 +336,7 @@ class TradingFlow(Flow[CycleState]):
             ):
                 logger.info("Hard-stop: running deterministic order poll only")
                 try:
-                    self._execution_service.poll_and_reconcile(self._portfolio)
+                    await self._execution_service.poll_and_reconcile(self._portfolio)
                 except Exception:
                     logger.exception("Hard-stop order poll failed")
 
@@ -346,7 +346,7 @@ class TradingFlow(Flow[CycleState]):
 
         # 4. Stop-loss monitoring
         if self._settings.stop_loss_monitoring_enabled:
-            self._check_stop_losses()
+            await self._check_stop_losses()
 
         # 5. Persist cycle summary
         if self._settings.save_cycle_history:
@@ -367,7 +367,7 @@ class TradingFlow(Flow[CycleState]):
         logger.info(self.state.summary)
 
     @listen("halt")
-    def circuit_breaker_halt(self) -> None:
+    async def circuit_breaker_halt(self) -> None:
         """Terminal handler when the circuit breaker is tripped at cycle start."""
         self.state.circuit_breaker_tripped = True
         self._on_circuit_breaker_activated()
@@ -418,7 +418,7 @@ class TradingFlow(Flow[CycleState]):
             f"Reason: {self._circuit_breaker.trip_reason}"
         )
 
-    def _on_stop_loss_triggered(
+    async def _on_stop_loss_triggered(
         self, symbol: str, pos: Position, current_price: float
     ) -> None:
         """Called when a position's stop-loss level has been breached.
@@ -445,7 +445,7 @@ class TradingFlow(Flow[CycleState]):
         )
         _apply_single_order_to_portfolio(self._portfolio, req)
         try:
-            sl_result = self._execution_service.process_order_requests([req], self._portfolio)
+            sl_result = await self._execution_service.process_order_requests([req], self._portfolio)
             # Append stop-loss orders into cycle state so CycleRecord counts them
             self.state.orders = list(self.state.orders) + sl_result.placed
             self.state.filled_orders = list(self.state.filled_orders) + sl_result.filled
@@ -463,7 +463,7 @@ class TradingFlow(Flow[CycleState]):
     # Private helpers
     # -------------------------------------------------------------------------
 
-    def _check_stop_losses(self) -> None:
+    async def _check_stop_losses(self) -> None:
         """Check all open positions against their stop-loss levels.
 
         Falls back to ``cached_analyses`` (from the previous market run) when
@@ -479,7 +479,7 @@ class TradingFlow(Flow[CycleState]):
                 continue
             current_price = analysis.current_price
             if pos.side == "long" and current_price <= pos.stop_loss_price:
-                self._on_stop_loss_triggered(symbol, pos, current_price)
+                await self._on_stop_loss_triggered(symbol, pos, current_price)
 
     def _update_position_prices(self) -> None:
         """Refresh ``current_price`` on all open positions from fresh market data."""

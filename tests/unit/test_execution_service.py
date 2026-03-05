@@ -34,6 +34,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
+
 from trading_crew.models.order import (
     Order,
     OrderFill,
@@ -186,7 +188,7 @@ def _apply_tentative_sell(portfolio: Portfolio, req: OrderRequest) -> None:
 
 
 class _ExchangeStub:
-    """Minimal exchange stub."""
+    """Minimal async exchange stub."""
 
     exchange_id = EXCHANGE_ID
     is_paper = True
@@ -198,23 +200,23 @@ class _ExchangeStub:
         self.cancelled_orders: list[str] = []
         self._status_responses: dict[str, dict] = {}
 
-    def create_order(self, request: OrderRequest) -> Order:
+    async def create_order(self, request: OrderRequest) -> Order:
         self.created_orders.append(request)
         return _make_filled_order(request, self._fill_price) if self.is_paper else _make_open_order(request)
 
-    def fetch_order_status(self, order_id: str, symbol: str) -> dict:
+    async def fetch_order_status(self, order_id: str, symbol: str) -> dict:
         return self._status_responses.get(order_id, {"status": "open", "filled": 0, "remaining": 0.01, "average": None})
 
-    def cancel_order(self, order_id: str, symbol: str) -> None:
+    async def cancel_order(self, order_id: str, symbol: str) -> None:
         self.cancelled_orders.append(order_id)
 
-    def normalize_order_precision(self, symbol: str, amount: float, price: float | None) -> tuple[float, float | None]:
+    async def normalize_order_precision(self, symbol: str, amount: float, price: float | None) -> tuple[float, float | None]:
         return round(amount, 6), round(price, 2) if price else None
 
-    def get_market_limits(self, symbol: str) -> dict:
+    async def get_market_limits(self, symbol: str) -> dict:
         return {"amount_min": 0.0001, "cost_min": 1.0, "price_min": None}
 
-    def fetch_ticker(self, symbol: str) -> Any:
+    async def fetch_ticker(self, symbol: str) -> Any:
         from types import SimpleNamespace
         return SimpleNamespace(ask=self._fill_price, last=self._fill_price, bid=self._fill_price - 10)
 
@@ -222,7 +224,7 @@ class _ExchangeStub:
 class _FailingExchangeStub(_ExchangeStub):
     """Exchange stub that always raises on create_order."""
 
-    def create_order(self, request: OrderRequest) -> Order:
+    async def create_order(self, request: OrderRequest) -> Order:
         raise RuntimeError("Exchange connection refused")
 
 
@@ -376,14 +378,15 @@ def _make_service(
 
 
 class TestPaperModeImmediateFill:
-    def test_order_placed_and_filled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_order_placed_and_filled(self) -> None:
         svc, _ex, _db, _nf = _make_service()
         req = _make_buy_request()
         portfolio = _make_portfolio(balance=1000.0)
         # Pre-apply tentative reservation (as Phase 3 would)
         portfolio.balance_quote -= req.amount * req.price
 
-        result = svc.process_order_requests([req], portfolio)
+        result = await svc.process_order_requests([req], portfolio)
 
         assert len(result.placed) == 1
         assert len(result.filled) == 1
@@ -391,34 +394,37 @@ class TestPaperModeImmediateFill:
         order = result.filled[0]
         assert order.status == OrderStatus.FILLED
 
-    def test_portfolio_updated_after_fill(self) -> None:
+    @pytest.mark.asyncio
+    async def test_portfolio_updated_after_fill(self) -> None:
         svc, _ex, _db, _nf = _make_service(exchange=_ExchangeStub(paper=True, fill_price=50_500.0))
         req = _make_buy_request(amount=0.01, price=50_000.0)
         portfolio = _make_portfolio(balance=10_000.0)
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         # Position should exist after fill
         assert SYMBOL in portfolio.positions
         pos = portfolio.positions[SYMBOL]
         assert abs(pos.amount - req.amount) < 1e-9
 
-    def test_order_saved_to_db(self) -> None:
+    @pytest.mark.asyncio
+    async def test_order_saved_to_db(self) -> None:
         svc, _ex, db, _nf = _make_service()
         req = _make_buy_request()
         portfolio = _make_portfolio()
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         # At least PENDING + actual order saved
         assert len(db.saved_orders) >= 2
 
-    def test_notification_sent_on_fill(self) -> None:
+    @pytest.mark.asyncio
+    async def test_notification_sent_on_fill(self) -> None:
         svc, _ex, _db, nf = _make_service()
         req = _make_buy_request()
         portfolio = _make_portfolio()
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         placed_msgs = [m for m in nf.notifications if "placed" in m.lower()]
         filled_msgs = [m for m in nf.notifications if "filled" in m.lower()]
@@ -432,27 +438,29 @@ class TestPaperModeImmediateFill:
 
 
 class TestLiveModePlacement:
-    def test_order_open_not_filled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_order_open_not_filled(self) -> None:
         ex = _ExchangeStub(paper=False)
         svc, ex, _db, _nf = _make_service(exchange=ex)
         req = _make_buy_request()
         portfolio = _make_portfolio()
 
-        result = svc.process_order_requests([req], portfolio)
+        result = await svc.process_order_requests([req], portfolio)
 
         assert len(result.placed) == 1
         assert len(result.filled) == 0
         placed = result.placed[0]
         assert placed.status == OrderStatus.OPEN
 
-    def test_no_portfolio_mutation_on_open(self) -> None:
+    @pytest.mark.asyncio
+    async def test_no_portfolio_mutation_on_open(self) -> None:
         """Live placement doesn't immediately reconcile portfolio."""
         ex = _ExchangeStub(paper=False)
         svc, *_ = _make_service(exchange=ex)
         req = _make_buy_request(amount=0.01, price=50_000.0)
         portfolio = _make_portfolio(balance=10_000.0)
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         # No position added yet — fill reconcile happens in poll_and_reconcile
         assert SYMBOL not in portfolio.positions
@@ -464,7 +472,8 @@ class TestLiveModePlacement:
 
 
 class TestPollFullFill:
-    def test_fill_detected_on_poll(self) -> None:
+    @pytest.mark.asyncio
+    async def test_fill_detected_on_poll(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = f"live-{uuid.uuid4().hex[:8]}"
         ex._status_responses[order_id] = {
@@ -480,13 +489,14 @@ class TestPollFullFill:
         svc, _, db, _nf = _make_service(exchange=ex, db=db)
         portfolio = _make_portfolio()
 
-        result = svc.poll_and_reconcile(portfolio)
+        result = await svc.poll_and_reconcile(portfolio)
 
         assert len(result.filled) == 1
         assert result.filled[0].id == order_id
         assert SYMBOL in portfolio.positions
 
-    def test_portfolio_updated_on_fill(self) -> None:
+    @pytest.mark.asyncio
+    async def test_portfolio_updated_on_fill(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "ord-fill-123"
         ex._status_responses[order_id] = {
@@ -501,12 +511,13 @@ class TestPollFullFill:
         svc, _, db, _ = _make_service(exchange=ex, db=db)
         portfolio = _make_portfolio()
 
-        svc.poll_and_reconcile(portfolio)
+        await svc.poll_and_reconcile(portfolio)
 
         pos = portfolio.positions[SYMBOL]
         assert abs(pos.amount - 0.02) < 1e-9
 
-    def test_fill_notification_sent(self) -> None:
+    @pytest.mark.asyncio
+    async def test_fill_notification_sent(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "ord-fill-notif"
         ex._status_responses[order_id] = {"status": "closed", "filled": 0.01, "remaining": 0.0, "average": 50_000.0}
@@ -514,7 +525,7 @@ class TestPollFullFill:
         db._open_records = [_make_db_record(order_id)]
         svc, _, _, nf = _make_service(exchange=ex, db=db)
 
-        svc.poll_and_reconcile(_make_portfolio())
+        await svc.poll_and_reconcile(_make_portfolio())
 
         filled_msgs = [m for m in nf.notifications if "filled" in m.lower()]
         assert filled_msgs
@@ -526,7 +537,8 @@ class TestPollFullFill:
 
 
 class TestPartialFillAccumulation:
-    def test_partial_fill_increments_position(self) -> None:
+    @pytest.mark.asyncio
+    async def test_partial_fill_increments_position(self) -> None:
         """Partial fill with Phase 3 tentative: position stays at tentative amount.
 
         In DETERMINISTIC mode Phase 3 tentatively books the full order amount
@@ -551,7 +563,7 @@ class TestPartialFillAccumulation:
         # Pre-apply Phase 3 tentative BUY reservation
         _apply_tentative_buy(portfolio, _make_buy_request(amount=0.01, price=50_000.0))
 
-        result = svc.poll_and_reconcile(portfolio)
+        result = await svc.poll_and_reconcile(portfolio)
 
         assert len(result.filled) == 0  # not fully filled yet
         assert SYMBOL in portfolio.positions
@@ -562,7 +574,8 @@ class TestPartialFillAccumulation:
         partial_msgs = [m for m in nf.notifications if "partial" in m.lower()]
         assert partial_msgs
 
-    def test_second_poll_full_fill_completes(self) -> None:
+    @pytest.mark.asyncio
+    async def test_second_poll_full_fill_completes(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "ord-partial-2"
         # Second poll returns fully filled
@@ -578,7 +591,7 @@ class TestPartialFillAccumulation:
         svc, _, _, _ = _make_service(exchange=ex, db=db)
         portfolio = _make_portfolio_with_position(amount=0.005, entry_price=50_000.0)
 
-        result = svc.poll_and_reconcile(portfolio)
+        result = await svc.poll_and_reconcile(portfolio)
 
         assert len(result.filled) == 1
 
@@ -589,7 +602,8 @@ class TestPartialFillAccumulation:
 
 
 class TestStaleFullyOpenCancellation:
-    def test_stale_order_cancelled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_stale_order_cancelled(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "stale-open-1"
         ex._status_responses[order_id] = {
@@ -605,12 +619,13 @@ class TestStaleFullyOpenCancellation:
         svc, _, _, _nf = _make_service(exchange=ex, db=db, stale_minutes=10)
         portfolio = _make_portfolio()
 
-        result = svc.poll_and_reconcile(portfolio)
+        result = await svc.poll_and_reconcile(portfolio)
 
         assert order_id in ex.cancelled_orders
         assert len(result.cancelled) == 1
 
-    def test_stale_cancel_notification_sent(self) -> None:
+    @pytest.mark.asyncio
+    async def test_stale_cancel_notification_sent(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "stale-open-notif"
         ex._status_responses[order_id] = {"status": "open", "filled": 0.0, "remaining": 0.01, "average": None}
@@ -619,12 +634,13 @@ class TestStaleFullyOpenCancellation:
         db._open_records = [record]
         svc, _, _, nf = _make_service(exchange=ex, db=db, stale_minutes=10)
 
-        svc.poll_and_reconcile(_make_portfolio())
+        await svc.poll_and_reconcile(_make_portfolio())
 
         cancel_msgs = [m for m in nf.notifications if "cancel" in m.lower() or "stale" in m.lower()]
         assert cancel_msgs
 
-    def test_fresh_order_not_cancelled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_fresh_order_not_cancelled(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "fresh-open-1"
         ex._status_responses[order_id] = {"status": "open", "filled": 0.0, "remaining": 0.01, "average": None}
@@ -633,7 +649,7 @@ class TestStaleFullyOpenCancellation:
         db._open_records = [record]
         svc, _, _, _ = _make_service(exchange=ex, db=db, stale_minutes=10)
 
-        result = svc.poll_and_reconcile(_make_portfolio())
+        result = await svc.poll_and_reconcile(_make_portfolio())
 
         assert order_id not in ex.cancelled_orders
         assert len(result.cancelled) == 0
@@ -645,7 +661,8 @@ class TestStaleFullyOpenCancellation:
 
 
 class TestStalePartialFillCancellation:
-    def test_stale_partial_fill_cancelled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_stale_partial_fill_cancelled(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "stale-partial-1"
         ex._status_responses[order_id] = {
@@ -666,7 +683,7 @@ class TestStalePartialFillCancellation:
         svc, _, _, _nf = _make_service(exchange=ex, db=db, stale_partial_minutes=360)
         portfolio = _make_portfolio_with_position(amount=0.005)
 
-        result = svc.poll_and_reconcile(portfolio)
+        result = await svc.poll_and_reconcile(portfolio)
 
         assert order_id in ex.cancelled_orders
         assert len(result.cancelled) == 1
@@ -678,28 +695,31 @@ class TestStalePartialFillCancellation:
 
 
 class TestDeadLetterQueue:
-    def test_failed_placement_goes_to_dead_letter(self) -> None:
+    @pytest.mark.asyncio
+    async def test_failed_placement_goes_to_dead_letter(self) -> None:
         ex = _FailingExchangeStub()
         svc, _, db, _nf = _make_service(exchange=ex)
         req = _make_buy_request()
         portfolio = _make_portfolio()
 
-        result = svc.process_order_requests([req], portfolio)
+        result = await svc.process_order_requests([req], portfolio)
 
         assert len(result.placed) == 0
         assert len(result.failed) == 1
         assert "connection refused" in result.failed[0].error_reason.lower()
         assert len(db.failed_orders) == 1
 
-    def test_error_notification_sent_on_failure(self) -> None:
+    @pytest.mark.asyncio
+    async def test_error_notification_sent_on_failure(self) -> None:
         svc, _, _, nf = _make_service(exchange=_FailingExchangeStub())
-        svc.process_order_requests([_make_buy_request()], _make_portfolio())
+        await svc.process_order_requests([_make_buy_request()], _make_portfolio())
         assert nf.errors, "Expected error notification on placement failure"
 
-    def test_pending_order_marked_rejected_in_db(self) -> None:
+    @pytest.mark.asyncio
+    async def test_pending_order_marked_rejected_in_db(self) -> None:
         """PENDING order in DB must be updated to REJECTED when exchange fails."""
         svc, _, db, _ = _make_service(exchange=_FailingExchangeStub())
-        svc.process_order_requests([_make_buy_request()], _make_portfolio())
+        await svc.process_order_requests([_make_buy_request()], _make_portfolio())
 
         statuses = [o.status for o in db.saved_orders]
         assert OrderStatus.PENDING in statuses
@@ -712,35 +732,38 @@ class TestDeadLetterQueue:
 
 
 class TestPrecisionNormalization:
-    def test_amount_rounded(self) -> None:
+    @pytest.mark.asyncio
+    async def test_amount_rounded(self) -> None:
         ex = _ExchangeStub()
         svc, _, _, _ = _make_service(exchange=ex)
         req = _make_buy_request(amount=0.0123456789, price=50_000.0)
         portfolio = _make_portfolio()
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         placed_req = ex.created_orders[0]
         assert placed_req.amount == round(0.0123456789, 6)
 
-    def test_limit_price_rounded(self) -> None:
+    @pytest.mark.asyncio
+    async def test_limit_price_rounded(self) -> None:
         ex = _ExchangeStub()
         svc, _, _, _ = _make_service(exchange=ex)
         req = _make_buy_request(price=49_999.9876543)
         portfolio = _make_portfolio()
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         placed_req = ex.created_orders[0]
         assert placed_req.price == round(49_999.9876543, 2)
 
-    def test_market_order_no_price_rounding(self) -> None:
+    @pytest.mark.asyncio
+    async def test_market_order_no_price_rounding(self) -> None:
         ex = _ExchangeStub()
         svc, _, _, _ = _make_service(exchange=ex)
         req = _make_buy_request(order_type=OrderType.MARKET)
         portfolio = _make_portfolio()
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         placed_req = ex.created_orders[0]
         assert placed_req.price is None
@@ -752,48 +775,52 @@ class TestPrecisionNormalization:
 
 
 class TestOrderValidation:
-    def test_insufficient_balance_rejected(self) -> None:
+    @pytest.mark.asyncio
+    async def test_insufficient_balance_rejected(self) -> None:
         svc, ex, _db, _nf = _make_service()
         req = _make_buy_request(amount=1.0, price=50_000.0)  # costs 50k
         portfolio = _make_portfolio(balance=100.0)  # only 100
 
-        result = svc.process_order_requests([req], portfolio)
+        result = await svc.process_order_requests([req], portfolio)
 
         assert len(result.placed) == 0
         assert len(result.failed) == 1
         assert "balance" in result.failed[0].error_reason
         assert len(ex.created_orders) == 0
 
-    def test_sell_without_position_rejected(self) -> None:
+    @pytest.mark.asyncio
+    async def test_sell_without_position_rejected(self) -> None:
         svc, _ex, _, _ = _make_service()
         req = _make_sell_request()
         portfolio = _make_portfolio()
 
-        result = svc.process_order_requests([req], portfolio)
+        result = await svc.process_order_requests([req], portfolio)
 
         assert len(result.failed) == 1
         assert "no position" in result.failed[0].error_reason
 
-    def test_sell_exceeds_position_rejected(self) -> None:
+    @pytest.mark.asyncio
+    async def test_sell_exceeds_position_rejected(self) -> None:
         svc, _ex, _, _ = _make_service()
         req = _make_sell_request(amount=1.0)  # selling 1 BTC
         portfolio = _make_portfolio_with_position(amount=0.05)  # only 0.05 BTC
 
-        result = svc.process_order_requests([req], portfolio)
+        result = await svc.process_order_requests([req], portfolio)
 
         assert len(result.failed) == 1
         assert "exceeds" in result.failed[0].error_reason
 
-    def test_below_min_amount_rejected(self) -> None:
+    @pytest.mark.asyncio
+    async def test_below_min_amount_rejected(self) -> None:
         class _TightLimitsExchange(_ExchangeStub):
-            def get_market_limits(self, symbol: str) -> dict:
+            async def get_market_limits(self, symbol: str) -> dict:
                 return {"amount_min": 0.1, "cost_min": None, "price_min": None}
 
         svc, _, _, _ = _make_service(exchange=_TightLimitsExchange())
         req = _make_buy_request(amount=0.0001)  # below 0.1 min
         portfolio = _make_portfolio()
 
-        result = svc.process_order_requests([req], portfolio)
+        result = await svc.process_order_requests([req], portfolio)
 
         assert len(result.failed) == 1
         assert "minimum" in result.failed[0].error_reason
@@ -805,14 +832,15 @@ class TestOrderValidation:
 
 
 class TestSaveBeforePlace:
-    def test_pending_saved_before_exchange_call(self) -> None:
+    @pytest.mark.asyncio
+    async def test_pending_saved_before_exchange_call(self) -> None:
         """PENDING must appear in DB before create_order is called."""
         call_log: list[str] = []
 
         class _TrackingExchange(_ExchangeStub):
-            def create_order(self, request: OrderRequest) -> Order:
+            async def create_order(self, request: OrderRequest) -> Order:
                 call_log.append("exchange_called")
-                return super().create_order(request)
+                return await super().create_order(request)
 
         class _TrackingDB(_DBStub):
             def save_order(self, order: Order) -> None:
@@ -825,7 +853,7 @@ class TestSaveBeforePlace:
             db_service=_TrackingDB(),
             notification_service=_NotifStub(),
         )
-        svc.process_order_requests([_make_buy_request()], _make_portfolio())
+        await svc.process_order_requests([_make_buy_request()], _make_portfolio())
 
         pending_idx = call_log.index("pending_saved")
         exchange_idx = call_log.index("exchange_called")
@@ -838,23 +866,25 @@ class TestSaveBeforePlace:
 
 
 class TestOrderTypePaths:
-    def test_limit_order_includes_price(self) -> None:
+    @pytest.mark.asyncio
+    async def test_limit_order_includes_price(self) -> None:
         ex = _ExchangeStub()
         svc, _, _, _ = _make_service(exchange=ex)
         req = _make_buy_request(order_type=OrderType.LIMIT, price=50_000.0)
         portfolio = _make_portfolio()
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         assert ex.created_orders[0].price == round(50_000.0, 2)
 
-    def test_market_order_has_no_price(self) -> None:
+    @pytest.mark.asyncio
+    async def test_market_order_has_no_price(self) -> None:
         ex = _ExchangeStub()
         svc, _, _, _ = _make_service(exchange=ex)
         req = _make_buy_request(order_type=OrderType.MARKET)
         portfolio = _make_portfolio()
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         assert ex.created_orders[0].price is None
 
@@ -865,7 +895,8 @@ class TestOrderTypePaths:
 
 
 class TestPortfolioReconciliationMath:
-    def test_buy_fill_updates_balance_and_position(self) -> None:
+    @pytest.mark.asyncio
+    async def test_buy_fill_updates_balance_and_position(self) -> None:
         """BUY: reconcile correctly replaces tentative reservation with actual fill.
 
         Phase 3 tentative deducts req.amount * req.price from balance and creates
@@ -881,7 +912,7 @@ class TestPortfolioReconciliationMath:
         # Simulate Phase 3 tentative reservation before execution
         _apply_tentative_buy(portfolio, req)
 
-        svc.process_order_requests([req], portfolio)
+        await svc.process_order_requests([req], portfolio)
 
         pos = portfolio.positions.get(SYMBOL)
         assert pos is not None
@@ -952,7 +983,8 @@ class TestPortfolioReconciliationMath:
         assert portfolio.realized_pnl >= 400.0  # allow tolerance for fee treatment
         assert abs(portfolio.positions[SYMBOL].amount - 0.1) < 1e-9  # 0.1 BTC remaining
 
-    def test_incremental_partial_fill_updates_position(self) -> None:
+    @pytest.mark.asyncio
+    async def test_incremental_partial_fill_updates_position(self) -> None:
         """Partial fill math: position held at tentative amount, balance corrected.
 
         With the Phase 3 tentative in place (full 0.01 BTC reserved), a 0.005
@@ -977,7 +1009,7 @@ class TestPortfolioReconciliationMath:
         # Pre-apply Phase 3 tentative BUY reservation
         _apply_tentative_buy(portfolio, _make_buy_request(amount=0.01, price=50_000.0))
 
-        svc.poll_and_reconcile(portfolio)
+        await svc.poll_and_reconcile(portfolio)
 
         pos = portfolio.positions.get(SYMBOL)
         assert pos is not None
@@ -991,12 +1023,14 @@ class TestPortfolioReconciliationMath:
 
 
 class TestPortfolioPersistence:
-    def test_save_portfolio_called_after_poll(self) -> None:
+    @pytest.mark.asyncio
+    async def test_save_portfolio_called_after_poll(self) -> None:
         svc, _, db, _ = _make_service()
-        svc.poll_and_reconcile(_make_portfolio())
+        await svc.poll_and_reconcile(_make_portfolio())
         assert len(db.saved_portfolios) == 1
 
-    def test_save_portfolio_reflects_updated_state(self) -> None:
+    @pytest.mark.asyncio
+    async def test_save_portfolio_reflects_updated_state(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "save-port-1"
         ex._status_responses[order_id] = {"status": "closed", "filled": 0.01, "remaining": 0.0, "average": 50_000.0}
@@ -1005,7 +1039,7 @@ class TestPortfolioPersistence:
         svc, _, db, _ = _make_service(exchange=ex, db=db)
         portfolio = _make_portfolio()
 
-        svc.poll_and_reconcile(portfolio)
+        await svc.poll_and_reconcile(portfolio)
 
         saved = db.saved_portfolios[-1]
         assert saved is portfolio
@@ -1017,29 +1051,33 @@ class TestPortfolioPersistence:
 
 
 class TestNotificationTriggers:
-    def test_placed_notification_sent(self) -> None:
+    @pytest.mark.asyncio
+    async def test_placed_notification_sent(self) -> None:
         svc, _, _, nf = _make_service()
-        svc.process_order_requests([_make_buy_request()], _make_portfolio())
+        await svc.process_order_requests([_make_buy_request()], _make_portfolio())
         assert any("placed" in m.lower() for m in nf.notifications)
 
-    def test_filled_notification_sent(self) -> None:
+    @pytest.mark.asyncio
+    async def test_filled_notification_sent(self) -> None:
         svc, _, _, nf = _make_service()
-        svc.process_order_requests([_make_buy_request()], _make_portfolio())
+        await svc.process_order_requests([_make_buy_request()], _make_portfolio())
         assert any("filled" in m.lower() for m in nf.notifications)
 
-    def test_error_notification_on_failure(self) -> None:
+    @pytest.mark.asyncio
+    async def test_error_notification_on_failure(self) -> None:
         svc, _, _, nf = _make_service(exchange=_FailingExchangeStub())
-        svc.process_order_requests([_make_buy_request()], _make_portfolio())
+        await svc.process_order_requests([_make_buy_request()], _make_portfolio())
         assert nf.errors
 
-    def test_cancel_notification_on_stale(self) -> None:
+    @pytest.mark.asyncio
+    async def test_cancel_notification_on_stale(self) -> None:
         ex = _ExchangeStub(paper=False)
         oid = "stale-notif-1"
         ex._status_responses[oid] = {"status": "open", "filled": 0.0, "remaining": 0.01, "average": None}
         db = _DBStub()
         db._open_records = [_make_db_record(oid, created_at=datetime.now(UTC) - timedelta(minutes=30))]
         svc, _, _, nf = _make_service(exchange=ex, db=db, stale_minutes=10)
-        svc.poll_and_reconcile(_make_portfolio())
+        await svc.poll_and_reconcile(_make_portfolio())
         assert any("cancel" in m.lower() or "stale" in m.lower() for m in nf.notifications)
 
 
@@ -1049,9 +1087,10 @@ class TestNotificationTriggers:
 
 
 class TestEmptyOrderRequests:
-    def test_empty_list_returns_empty_result(self) -> None:
+    @pytest.mark.asyncio
+    async def test_empty_list_returns_empty_result(self) -> None:
         svc, ex, db, _ = _make_service()
-        result = svc.process_order_requests([], _make_portfolio())
+        result = await svc.process_order_requests([], _make_portfolio())
         assert result.placed == []
         assert result.filled == []
         assert result.failed == []

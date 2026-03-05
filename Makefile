@@ -1,4 +1,4 @@
-.PHONY: install dev lint type-check test test-unit test-integration backtest backtest-run backtest-data format pre-commit docs clean dashboard-api dashboard-ui dashboard-install
+.PHONY: install dev lint type-check test test-unit test-integration backtest backtest-run backtest-data format pre-commit docs clean dashboard-api dashboard-ui dashboard-install docker-build docker-up docker-down
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -118,6 +118,20 @@ dashboard-api:  ## Start FastAPI dashboard server (port 8000)
 
 dashboard-ui:  ## Start Next.js dev server (port 3000, requires Node)
 	cd dashboard && npm run dev
+
+# ---------------------------------------------------------------------------
+# Docker (Phase 8)
+# ---------------------------------------------------------------------------
+
+docker-build:  ## Build all Docker images (backend + dashboard)
+	docker compose build
+
+docker-up:  ## Start all services in detached mode
+	mkdir -p data
+	docker compose up --build -d
+
+docker-down:  ## Stop and remove all containers (data volume preserved)
+	docker compose down
 
 help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
