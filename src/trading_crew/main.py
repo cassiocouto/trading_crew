@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import yaml
@@ -55,6 +56,7 @@ from trading_crew.crews.market_crew import MarketCrew
 from trading_crew.crews.strategy_crew import StrategyCrew
 from trading_crew.db.session import get_engine, init_db
 from trading_crew.flows.trading_flow import TradingFlow
+from trading_crew.models.market import MarketAnalysis
 from trading_crew.models.order import OrderRequest, OrderSide
 from trading_crew.models.portfolio import Portfolio, Position
 from trading_crew.risk.circuit_breaker import CircuitBreaker
@@ -116,7 +118,7 @@ def _setup_logging(level: str) -> None:
 
 def _make_shutdown_handler(
     shutdown_event: asyncio.Event, loop: asyncio.AbstractEventLoop
-):
+) -> Callable[[int, object], None]:
     """Return a cross-platform SIGINT/SIGTERM handler that sets an asyncio.Event.
 
     Uses ``loop.call_soon_threadsafe`` so the event is set safely from the
@@ -600,7 +602,7 @@ async def main_async() -> None:
     budget_state = BudgetRuntimeState(token_budget_day=_utc_today())
     # Cross-cycle cache: most recent market analyses, used as a stop-loss
     # price fallback when the market phase is skipped this cycle.
-    last_market_analyses: dict = {}
+    last_market_analyses: dict[str, MarketAnalysis] = {}
 
     while not shutdown_event.is_set():
         cycle += 1

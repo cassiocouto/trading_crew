@@ -13,9 +13,10 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
+from sqlalchemy.engine import Engine
 
 from trading_crew.db.models import (
     CycleRecord,
@@ -49,10 +50,10 @@ class DatabaseService:
     don't need to worry about session lifecycle.
     """
 
-    def __init__(self, database_url: str | None = None) -> None:
-        from sqlalchemy.engine import Engine as _Engine  # local import avoids circular
+    _engine: Engine
 
-        if isinstance(database_url, _Engine):
+    def __init__(self, database_url: str | Engine | None = None) -> None:
+        if isinstance(database_url, Engine):
             self._engine = database_url
         else:
             self._engine = get_engine(database_url)
@@ -476,7 +477,7 @@ class DatabaseService:
             error_reason[:200],
         )
 
-    def get_failed_orders(self, unresolved_only: bool = True) -> list[dict]:
+    def get_failed_orders(self, unresolved_only: bool = True) -> list[dict[str, Any]]:
         """Retrieve failed order records for manual review.
 
         Args:
@@ -527,7 +528,7 @@ class DatabaseService:
 
         # CrewAI wraps self.state in a StateProxy in some versions; unwrap it.
         if hasattr(state, "_proxy_state"):
-            state = object.__getattribute__(state, "_proxy_state")  # type: ignore[union-attr]
+            state = object.__getattribute__(state, "_proxy_state")
         if not isinstance(state, CycleState):
             raise TypeError(f"Expected CycleState, got {type(state)}")
         if not isinstance(portfolio, Portfolio):

@@ -23,7 +23,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from trading_crew.models.order import (
     Order,
@@ -102,7 +102,7 @@ class FailedOrder:
     error_reason: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.order_request.symbol,
             "exchange": self.order_request.exchange,

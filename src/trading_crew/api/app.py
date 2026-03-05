@@ -12,6 +12,7 @@ SQLite concurrency:
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -90,14 +91,17 @@ def create_app() -> FastAPI:
         _api_key = settings.dashboard_api_key
 
         @app.middleware("http")
-        async def api_key_middleware(request: Request, call_next: object) -> Response:
+        async def api_key_middleware(
+            request: Request,
+            call_next: Callable[[Request], Awaitable[Response]],
+        ) -> Response:
             # Pass through WebSocket upgrades and CORS pre-flights
             if request.url.path.startswith("/ws") or request.method == "OPTIONS":
-                return await call_next(request)  # type: ignore[operator]
+                return await call_next(request)
             key = request.headers.get("X-API-Key", "")
             if key != _api_key:
                 return Response(content='{"detail":"Forbidden"}', status_code=403, media_type="application/json")
-            return await call_next(request)  # type: ignore[operator]
+            return await call_next(request)
 
     app.include_router(portfolio.router, prefix="/api/portfolio")
     app.include_router(orders.router, prefix="/api/orders")

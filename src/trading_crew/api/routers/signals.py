@@ -91,7 +91,7 @@ def get_strategy_stats(db: DatabaseService = Depends(get_db)) -> list[StrategySt
         ).all()
 
         # Merge by strategy_name in Python (must be done inside session scope)
-        stats: dict[str, dict] = {}
+        stats: dict[str, dict[str, object]] = {}
         for row in signal_rows:
             stats[row.strategy_name] = {
                 "total_signals": row.total_signals or 0,

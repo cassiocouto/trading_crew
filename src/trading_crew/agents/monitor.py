@@ -6,7 +6,7 @@ portfolio state synchronized with exchange reality.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from crewai import Agent
 
@@ -37,7 +37,7 @@ def create_monitor_agent(
     Returns:
         A configured CrewAI Agent.
     """
-    tools = [SendNotificationTool(notification_service=notification_service)]
+    tools: list[Any] = [SendNotificationTool(notification_service=notification_service)]
 
     if exchange_service is not None:
         tools.append(FetchOrderStatusTool(exchange_service=exchange_service))

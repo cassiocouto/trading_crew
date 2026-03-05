@@ -57,8 +57,8 @@ manager = ConnectionManager()
 
 async def ws_events_handler(ws: WebSocket) -> None:
     """Handle a single WebSocket client: poll DB and push incremental events."""
-    db: DatabaseService = ws.app.state.db  # type: ignore[attr-defined]
-    poll_interval: int = ws.app.state.ws_poll_interval  # type: ignore[attr-defined]
+    db: DatabaseService = ws.app.state.db
+    poll_interval: int = ws.app.state.ws_poll_interval
 
     await manager.connect(ws)
 
@@ -146,14 +146,14 @@ def _collect_events(
                 OrderRecord.status == "filled",
             )
         ).scalars().all()
-        for record in new_fills:
+        for order_rec in new_fills:
             order_payload = {
-                "exchange_order_id": record.exchange_order_id,
-                "symbol": record.symbol,
-                "side": record.side,
-                "filled_amount": record.filled_amount,
-                "average_fill_price": record.average_fill_price,
-                "strategy_name": record.strategy_name,
+                "exchange_order_id": order_rec.exchange_order_id,
+                "symbol": order_rec.symbol,
+                "side": order_rec.side,
+                "filled_amount": order_rec.filled_amount,
+                "average_fill_price": order_rec.average_fill_price,
+                "strategy_name": order_rec.strategy_name,
             }
             events.append(WsEvent(type="order_filled", payload=order_payload))
 
@@ -168,15 +168,15 @@ def _collect_events(
         new_signals = session.execute(
             select(TradeSignalRecord).where(TradeSignalRecord.id > signal_wm)
         ).scalars().all()
-        for record in new_signals:
+        for signal_rec in new_signals:
             signal_payload = {
-                "symbol": record.symbol,
-                "signal_type": record.signal_type,
-                "strategy_name": record.strategy_name,
-                "confidence": record.confidence,
+                "symbol": signal_rec.symbol,
+                "signal_type": signal_rec.signal_type,
+                "strategy_name": signal_rec.strategy_name,
+                "confidence": signal_rec.confidence,
             }
             events.append(WsEvent(type="signal_generated", payload=signal_payload))
-            signal_wm = max(signal_wm, record.id)
+            signal_wm = max(signal_wm, signal_rec.id)
 
     return events, cycle_wm, order_wm, signal_wm
 

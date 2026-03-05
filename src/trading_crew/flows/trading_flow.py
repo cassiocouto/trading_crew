@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from crewai import Crew
 from crewai.flow.flow import Flow, listen, or_, router, start
 
 from trading_crew.config.settings import (
@@ -92,9 +93,9 @@ class TradingFlow(Flow[CycleState]):
         execution_service: ExecutionService,
         db_service: DatabaseService,
         notif_service: NotificationService,
-        market_crew: object,
-        strategy_crew: object,
-        execution_crew: object,
+        market_crew: Crew,
+        strategy_crew: Crew,
+        execution_crew: Crew,
         settings: Settings,
     ) -> None:
         # State fields are forwarded to Flow's __init__ which injects them into

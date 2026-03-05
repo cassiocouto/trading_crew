@@ -38,7 +38,7 @@ def get_portfolio(db: DatabaseService = Depends(get_db)) -> PortfolioResponse:
                 timestamp=None,
             )
 
-        raw_positions: dict = json.loads(record.positions_json or "{}")
+        raw_positions: dict[str, dict[str, object]] = json.loads(record.positions_json or "{}")
         positions = {
             symbol: PositionResponse(
                 symbol=symbol,

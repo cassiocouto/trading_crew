@@ -14,6 +14,7 @@ Defines the structured shape of data that flows between crews:
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -56,7 +57,7 @@ class CycleState(BaseModel):
     orders: list[Order] = Field(default_factory=list)
     filled_orders: list[Order] = Field(default_factory=list)
     cancelled_orders: list[Order] = Field(default_factory=list)
-    failed_orders: list[dict] = Field(default_factory=list)
+    failed_orders: list[dict[str, Any]] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     circuit_breaker_tripped: bool = False
 

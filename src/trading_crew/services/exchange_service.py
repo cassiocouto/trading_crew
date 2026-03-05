@@ -28,7 +28,7 @@ import logging
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import ccxt
 import ccxt.async_support as ccxt_async
@@ -264,19 +264,21 @@ class ExchangeService:
         cursor_ms = since_ms
 
         while cursor_ms <= until_ms:
-            _since = cursor_ms  # bind loop variable for lambda capture
-            raw_candles = await self._call(
-                lambda _s=_since: self._exchange.fetch_ohlcv(
+            _since = cursor_ms  # bind loop variable for closure capture
+
+            async def _fetch_batch(_s: int = _since) -> list[list[float | int]]:
+                return await self._exchange.fetch_ohlcv(  # type: ignore[no-any-return]
                     symbol, timeframe, since=_s, limit=batch_size
                 )
-            )
+
+            raw_candles = await self._call(_fetch_batch)
             if not raw_candles:
                 break
 
             batch: list[OHLCV] = []
             last_ts_ms = cursor_ms
             for candle in raw_candles:
-                ts_ms = candle[0]
+                ts_ms = int(candle[0])
                 if ts_ms > until_ms:
                     break
                 last_ts_ms = ts_ms
@@ -381,7 +383,7 @@ class ExchangeService:
             exchange_data=raw,
         )
 
-    async def fetch_order_status(self, order_id: str, symbol: str) -> dict[str, object]:
+    async def fetch_order_status(self, order_id: str, symbol: str) -> dict[str, Any]:
         """Fetch the current status of an order from the exchange.
 
         Args:
