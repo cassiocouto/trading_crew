@@ -43,6 +43,9 @@ YAML files for CrewAI agent/task definitions.
 | `ENSEMBLE_AGREEMENT_THRESHOLD` | `0.5` | Fraction of strategies that must agree for ensemble signal (0–1) |
 | `STOP_LOSS_METHOD` | `fixed` | `fixed` (percentage) or `atr` (ATR-based, adapts to volatility) |
 | `ATR_STOP_MULTIPLIER` | `2.0` | Number of ATRs used as stop distance when `STOP_LOSS_METHOD=atr` |
+| `ANTI_AVERAGING_DOWN` | `true` | Reject new BUY signals if entry price ≤ existing position's stop-loss price |
+| `SELL_GUARD_MODE` | `break_even` | `none` (disabled) or `break_even` (LIFO break-even guard on signal-driven sells) |
+| `RISK__MIN_PROFIT_MARGIN_PCT` | `0.0` | Extra margin above break-even before a sell is approved (`0.0` = pure break-even) |
 | `INITIAL_BALANCE_QUOTE` | `10000` | Starting balance for **paper trading only** — ignored in live mode (exchange wallet is used instead) |
 | `BALANCE_SYNC_INTERVAL_SECONDS` | `300` | How often (seconds) to re-sync wallet balance from the exchange in live mode. `0` = disabled. No effect in paper mode. |
 | `BALANCE_DRIFT_ALERT_THRESHOLD_PCT` | `1.0` | Send a Telegram alert when the synced balance drifts by this percentage or more from the in-memory value. |

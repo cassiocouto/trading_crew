@@ -276,6 +276,7 @@ class BacktestService:
     ) -> _PendingOrder | None:
         """Run a signal through the risk pipeline and return a queued order."""
         from trading_crew.risk.circuit_breaker import CircuitBreaker
+        from trading_crew.risk.sell_guard import AllowAllSellGuard
         from trading_crew.services.risk_pipeline import RiskPipeline
 
         cb = CircuitBreaker(self._risk_params)
@@ -284,6 +285,8 @@ class BacktestService:
             cb,
             stop_loss_method=self._stop_loss_method,
             atr_stop_multiplier=self._atr_stop_multiplier,
+            anti_averaging_down=False,  # guards always off in backtest
+            sell_guard=AllowAllSellGuard(),  # guards always off in backtest
         )
         result = pipeline.evaluate(signal, portfolio, analysis)
         if not result.is_approved or result.approved_amount <= 0:

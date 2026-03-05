@@ -20,6 +20,7 @@ from trading_crew.risk.portfolio_limits import (
     check_exposure_limit,
 )
 from trading_crew.risk.position_sizer import calculate_position_size
+from trading_crew.risk.sell_guard import AllowAllSellGuard, SellGuard
 from trading_crew.risk.stop_loss import atr_based_stop, fixed_percentage_stop
 
 if TYPE_CHECKING:
@@ -40,6 +41,10 @@ class RiskPipeline:
         circuit_breaker: Portfolio-level circuit breaker instance.
         stop_loss_method: "fixed" for percentage-based, "atr" for ATR-based.
         atr_stop_multiplier: ATR multiplier for ATR-based stops.
+        anti_averaging_down: If True, reject BUY signals whose entry price is
+            at or below the existing position's stop-loss price.
+        sell_guard: Pluggable guard evaluated for every SELL signal after the
+            inventory check.  Defaults to ``AllowAllSellGuard`` (no guard).
     """
 
     def __init__(
@@ -48,17 +53,22 @@ class RiskPipeline:
         circuit_breaker: CircuitBreaker,
         stop_loss_method: str = "fixed",
         atr_stop_multiplier: float = 2.0,
+        anti_averaging_down: bool = False,
+        sell_guard: SellGuard | None = None,
     ) -> None:
         self._risk_params = risk_params
         self._circuit_breaker = circuit_breaker
         self._stop_loss_method = stop_loss_method
         self._atr_stop_multiplier = atr_stop_multiplier
+        self._anti_averaging_down = anti_averaging_down
+        self._sell_guard: SellGuard = sell_guard if sell_guard is not None else AllowAllSellGuard()
 
     def evaluate(
         self,
         signal: TradeSignal,
         portfolio: Portfolio,
         analysis: MarketAnalysis | None = None,
+        break_even_prices: dict[str, float | None] | None = None,
     ) -> RiskCheckResult:
         """Run a signal through the full risk pipeline.
 
@@ -66,6 +76,9 @@ class RiskPipeline:
             signal: Trade signal to validate.
             portfolio: Current portfolio state.
             analysis: Optional market analysis for ATR-based stops.
+            break_even_prices: Pre-fetched break-even prices per symbol
+                (from ``DatabaseService.get_break_even_prices``).  Passed to
+                the sell guard so the pipeline stays I/O-free.
 
         Returns:
             RiskCheckResult with verdict, approved amounts, and reasons.
@@ -111,7 +124,9 @@ class RiskPipeline:
                     checks_failed=["inventory"],
                 )
             checks_passed.append("inventory")
-            return self._evaluate_sell(signal, portfolio, held, analysis, checks_passed, reasons)
+            return self._evaluate_sell(
+                signal, portfolio, held, analysis, checks_passed, reasons, break_even_prices
+            )
 
         return self._evaluate_buy(
             signal, portfolio, analysis, checks_passed, checks_failed, reasons
@@ -125,8 +140,25 @@ class RiskPipeline:
         analysis: MarketAnalysis | None,
         checks_passed: list[str],
         reasons: list[str],
+        break_even_prices: dict[str, float | None] | None = None,
     ) -> RiskCheckResult:
         """SELL-specific pipeline: cap at held amount, skip exposure/concentration."""
+        # -- Sell guard (LIFO break-even check) -------------------------------
+        bep = (break_even_prices or {}).get(signal.symbol)
+        ok, guard_reason = self._sell_guard.evaluate(
+            signal.symbol, signal.entry_price, bep, self._risk_params
+        )
+        if not ok:
+            logger.info("Risk REJECTED: SELL %s — sell guard: %s", signal.symbol, guard_reason)
+            return RiskCheckResult(
+                verdict=RiskVerdict.REJECTED,
+                approved_amount=0.0,
+                reasons=[guard_reason],
+                checks_passed=checks_passed,
+                checks_failed=["sell_guard"],
+            )
+        checks_passed.append("sell_guard")
+
         stop_loss_price = self._compute_stop_loss(signal, analysis)
 
         sizing = calculate_position_size(
@@ -183,6 +215,32 @@ class RiskPipeline:
         reasons: list[str],
     ) -> RiskCheckResult:
         """BUY-specific pipeline: position sizing + exposure/concentration limits."""
+        # -- Anti-averaging-down guard ----------------------------------------
+        if self._anti_averaging_down:
+            existing = portfolio.positions.get(signal.symbol)
+            if (
+                existing is not None
+                and existing.stop_loss_price is not None
+                and signal.entry_price <= existing.stop_loss_price
+            ):
+                logger.info(
+                    "Risk REJECTED: BUY %s — anti-averaging-down: entry %.4f <= stop %.4f",
+                    signal.symbol,
+                    signal.entry_price,
+                    existing.stop_loss_price,
+                )
+                return RiskCheckResult(
+                    verdict=RiskVerdict.REJECTED,
+                    approved_amount=0.0,
+                    reasons=[
+                        f"Anti-averaging-down: new entry {signal.entry_price:.4f} "
+                        f"<= existing stop-loss {existing.stop_loss_price:.4f}"
+                    ],
+                    checks_passed=checks_passed,
+                    checks_failed=["anti_averaging_down"],
+                )
+            checks_passed.append("anti_averaging_down")
+
         stop_loss_price = self._compute_stop_loss(signal, analysis)
 
         sizing = calculate_position_size(

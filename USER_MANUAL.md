@@ -275,6 +275,31 @@ The risk pipeline enforces:
 - `max_portfolio_exposure_pct` (default 80%) — the total portfolio allocated to open positions never exceeds this
 - Concentration limits — no single asset can dominate the portfolio disproportionately
 
+### Anti-averaging-down guard
+
+When this guard is on (the default), the bot refuses to buy more of an asset once the market has fallen *past your stop-loss floor*.
+
+**In plain terms:** Imagine you bought BTC at $100K with a stop-loss at $97K. The market drops to $95K and a new buy signal fires. The guard sees that $95K is below your $97K stop and rejects the signal — you are not throwing good money after bad while the position is already at risk. If the market drops further and the stop-loss triggers, the position closes normally. The next time you buy BTC (fresh start, no open position), the guard resets and the new buy sets a new bar.
+
+```env
+ANTI_AVERAGING_DOWN=true    # default; set to false to disable
+```
+
+**The threshold is your stop-loss.** You control how aggressive it is by adjusting `STOP_LOSS_METHOD` and `STOP_LOSS_PCT`. A wider stop gives more room before the guard activates; a tighter stop is more conservative.
+
+### Break-even sell guard
+
+When this guard is on (the default), the bot will not sell a position at a loss relative to what you actually paid — including fees and slippage.
+
+**In plain terms:** Imagine you bought BTC twice: Lot 1 at $100K (fees included → break-even $100.1K) and Lot 2 at $90K (break-even $90.09K). A sell signal fires at $89K. The guard checks: is $89K above the break-even of your most recent buy? No ($89K < $90.09K). So it holds — no sell. If the market recovers to $93K, the guard approves ($93K > $90.09K) and the sell goes through.
+
+This is intentional — **the bot prefers to hold rather than sell at a confirmed loss**. Stop-loss exits are not affected; those bypass this guard entirely and fire regardless of break-even.
+
+```env
+SELL_GUARD_MODE=break_even    # default; set to "none" to disable
+RISK__MIN_PROFIT_MARGIN_PCT=0.0   # set e.g. 1.0 to require 1% profit above break-even
+```
+
 ### What to do when the circuit breaker trips
 
 1. Check the logs (`trading_crew.log`) and dashboard for the drawdown value

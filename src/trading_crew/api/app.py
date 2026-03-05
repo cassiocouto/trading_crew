@@ -72,7 +72,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Trading Crew Dashboard",
-        version="0.9.0",
+        version="0.10.0",
         description="Real-time dashboard for the Trading Crew multi-agent system.",
         lifespan=lifespan,
     )

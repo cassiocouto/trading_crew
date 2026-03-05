@@ -827,6 +827,35 @@ git push origin v0.9.0
 | Add a new CrewAI tool | `tools/` → inherit `BaseTool`, add to the relevant agent factory in `agents/` |
 | Add a new CrewAI agent | `agents/` → create factory, add agent to the relevant crew in `crews/` |
 | Add a risk check | `risk/` → implement check, wire it into `services/risk_pipeline.py` |
+| Add a custom sell guard | `risk/sell_guard.py` → subclass `SellGuard`, implement `evaluate()`, pass to `RiskPipeline(sell_guard=...)` in `main.py` |
+
+### Adding a custom sell guard
+
+`SellGuard` in `risk/sell_guard.py` is a first-class extension point:
+
+```python
+from trading_crew.risk.sell_guard import SellGuard
+from trading_crew.models.risk import RiskParams
+
+class MinProfitSellGuard(SellGuard):
+    def evaluate(self, symbol, proposed_price, break_even_price, risk_params):
+        if break_even_price is None:
+            return True, "no break-even on record"
+        min_sell = break_even_price * (1 + risk_params.min_profit_margin_pct / 100)
+        if proposed_price < min_sell:
+            return False, f"need {min_sell:.4f}, proposed {proposed_price:.4f}"
+        return True, "ok"
+```
+
+Then in `main.py`, replace the `sell_guard` instantiation and pass your guard to `RiskPipeline`.
+
+**How break-even prices reach the guard:** `TradingFlow.strategy_phase()` calls `db.get_break_even_prices(held_symbols)` once per cycle (single batched DB query) and passes the result as `break_even_prices` to `risk_pipeline.evaluate()`. The pipeline forwards the per-symbol value to the guard — no further DB access inside the pipeline.
+
+**How break-even is computed:** `ExecutionService._compute_break_even(order)` runs when a BUY order reaches `FILLED` status in `_reconcile_fill()`:
+```
+break_even_price = average_fill_price + (total_fee / filled_amount)
+```
+The value is stored in `orders.break_even_price` (nullable Float column) via `save_order()`. Old rows without the column remain `NULL` and the guard falls through gracefully.
 | Add a new API endpoint | `api/routers/` → add router, register in `api/app.py` |
 | Add a WebSocket event | `api/websocket.py` + `api/schemas.py` + frontend handler |
 | Add a new database table | `db/models.py` → define ORM model, `make db-migrate msg="..."` |

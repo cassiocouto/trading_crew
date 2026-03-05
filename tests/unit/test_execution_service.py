@@ -1180,3 +1180,109 @@ class TestHelpers:
         assert d["symbol"] == SYMBOL
         assert d["error_reason"] == "test error"
         assert "timestamp" in d
+
+
+# ---------------------------------------------------------------------------
+# 23. _compute_break_even helper
+# ---------------------------------------------------------------------------
+
+
+class TestComputeBreakEven:
+    def _order_with_fills(
+        self,
+        fill_price: float,
+        fill_amount: float,
+        fee: float,
+    ) -> Order:
+        req = _make_buy_request(amount=fill_amount, price=fill_price)
+        order = Order(id="test-order", request=req, status=OrderStatus.FILLED)
+        order.add_fill(OrderFill(price=fill_price, amount=fill_amount, fee=fee))
+        return order
+
+    def test_basic_break_even_calculation(self) -> None:
+        order = self._order_with_fills(100.0, 1.0, 0.1)
+        result = ExecutionService._compute_break_even(order)
+        # break_even = 100.0 + (0.1 / 1.0) = 100.1
+        assert result == pytest.approx(100.1)
+
+    def test_zero_fee_returns_fill_price(self) -> None:
+        order = self._order_with_fills(50_000.0, 0.5, 0.0)
+        result = ExecutionService._compute_break_even(order)
+        assert result == pytest.approx(50_000.0)
+
+    def test_fractional_amount(self) -> None:
+        order = self._order_with_fills(100.0, 0.25, 0.05)
+        result = ExecutionService._compute_break_even(order)
+        # fee_per_unit = 0.05 / 0.25 = 0.20; break_even = 100.20
+        assert result == pytest.approx(100.20)
+
+    def test_returns_none_when_no_fills(self) -> None:
+        req = _make_buy_request()
+        order = Order(id="empty-order", request=req, status=OrderStatus.OPEN)
+        result = ExecutionService._compute_break_even(order)
+        assert result is None
+
+    def test_returns_none_when_filled_amount_is_zero(self) -> None:
+        req = _make_buy_request()
+        order = Order(id="zero-fill", request=req, status=OrderStatus.OPEN)
+        order.filled_amount = 0.0
+        result = ExecutionService._compute_break_even(order)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# 24. Guard-reset notification
+# ---------------------------------------------------------------------------
+
+
+class TestGuardResetNotification:
+    def _make_portfolio_full_sell_tentative_state(self) -> Portfolio:
+        """Return a portfolio in the tentative-sell state that _reconcile_fill expects.
+
+        Phase 3 books a tentative SELL by crediting ``amount * price`` to balance
+        and deleting the position when it reaches zero.  For a full sell of 1.0 BTC
+        at 55_000 the tentative state is:
+          - balance_quote = 55_000  (tentative credit applied)
+          - no BTC/USDT position     (deleted by tentative booking)
+        """
+        portfolio = Portfolio(balance_quote=55_000.0, peak_balance=100_000.0)
+        return portfolio
+
+    @pytest.mark.asyncio
+    async def test_guard_reset_notification_sent_when_enabled(self) -> None:
+        """Notification is sent when anti_averaging_down_enabled=True and position closes."""
+        notif = _NotifStub()
+        svc, _ex, _db, _ = _make_service(notif=notif)
+        svc._anti_averaging_down_enabled = True
+
+        # Tentative state: SELL fully consumed the position
+        portfolio = self._make_portfolio_full_sell_tentative_state()
+
+        req = _make_sell_request(amount=1.0, price=55_000.0)
+        order = Order(id="sell-001", request=req, status=OrderStatus.FILLED)
+        order.add_fill(OrderFill(price=55_000.0, amount=1.0, fee=10.0))
+
+        svc._reconcile_fill(order, portfolio)
+
+        # Position remains absent (was never created in tentative state)
+        assert "BTC/USDT" not in portfolio.positions
+        # Notification should have been sent
+        assert any("Guard reset" in m for m in notif.notifications)
+
+    @pytest.mark.asyncio
+    async def test_guard_reset_notification_not_sent_when_disabled(self) -> None:
+        """No notification when anti_averaging_down_enabled=False."""
+        notif = _NotifStub()
+        svc, _ex, _db, _ = _make_service(notif=notif)
+        svc._anti_averaging_down_enabled = False
+
+        portfolio = self._make_portfolio_full_sell_tentative_state()
+
+        req = _make_sell_request(amount=1.0, price=55_000.0)
+        order = Order(id="sell-002", request=req, status=OrderStatus.FILLED)
+        order.add_fill(OrderFill(price=55_000.0, amount=1.0, fee=10.0))
+
+        svc._reconcile_fill(order, portfolio)
+
+        # No guard-reset notification
+        assert not any("Guard reset" in m for m in notif.notifications)

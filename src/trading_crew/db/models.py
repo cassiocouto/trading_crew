@@ -132,6 +132,7 @@ class OrderRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    break_even_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     raw_exchange_response: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

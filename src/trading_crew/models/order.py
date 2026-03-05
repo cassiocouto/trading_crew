@@ -134,6 +134,7 @@ class Order(BaseModel):
     status: OrderStatus = OrderStatus.PENDING
     filled_amount: float = Field(default=0.0, ge=0)
     average_fill_price: float | None = None
+    break_even_price: float | None = None
     fills: list[OrderFill] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

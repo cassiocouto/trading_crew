@@ -55,6 +55,15 @@ class RiskParams(BaseModel, frozen=True):
     risk_per_trade_pct: float = Field(default=2.0, gt=0, le=100)
     min_confidence: float = Field(default=0.5, ge=0, le=1.0)
     cooldown_after_loss_seconds: int = Field(default=300, ge=0)
+    min_profit_margin_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Minimum profit margin above break-even required before a sell signal is approved. "
+            "0.0 = pure break-even (default). e.g. 1.0 = require at least 1% profit above cost."
+        ),
+    )
 
 
 class RiskCheckResult(BaseModel, frozen=True):

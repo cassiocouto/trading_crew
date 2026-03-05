@@ -214,6 +214,7 @@ class DatabaseService:
                 existing.filled_amount = order.filled_amount
                 existing.average_fill_price = order.average_fill_price
                 existing.total_fee = order.total_fee
+                existing.break_even_price = order.break_even_price
                 existing.updated_at = order.updated_at
             else:
                 record = OrderRecord(
@@ -230,6 +231,7 @@ class DatabaseService:
                     stop_loss_price=order.request.stop_loss_price,
                     take_profit_price=order.request.take_profit_price,
                     total_fee=order.total_fee,
+                    break_even_price=order.break_even_price,
                     strategy_name=order.request.strategy_name,
                     signal_confidence=order.request.signal_confidence,
                     created_at=order.created_at,
@@ -257,6 +259,36 @@ class DatabaseService:
             )
             result = session.execute(stmt).scalar_one()
             return int(result)
+
+    def get_break_even_prices(self, symbols: list[str]) -> dict[str, float | None]:
+        """Return the break_even_price of the most recently filled BUY for each symbol.
+
+        Uses a subquery to select the highest (most recent) order id per symbol,
+        then joins back to fetch the break_even_price in a single round-trip.
+        Symbols with no filled BUY orders get a None value.
+        """
+        if not symbols:
+            return {}
+        with get_session(self._engine) as session:
+            subq = (
+                select(OrderRecord.symbol, func.max(OrderRecord.id).label("last_id"))
+                .where(
+                    OrderRecord.symbol.in_(symbols),
+                    OrderRecord.side == "buy",
+                    OrderRecord.status == "filled",
+                )
+                .group_by(OrderRecord.symbol)
+                .subquery()
+            )
+            rows = session.execute(
+                select(OrderRecord.symbol, OrderRecord.break_even_price).join(
+                    subq, OrderRecord.id == subq.c.last_id
+                )
+            ).all()
+            result: dict[str, float | None] = {sym: None for sym in symbols}
+            for symbol, bep in rows:
+                result[symbol] = bep
+            return result
 
     def update_order_status_by_exchange_id(self, exchange_order_id: str, status: str) -> bool:
         """Update order status by exchange-assigned ID.

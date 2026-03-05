@@ -182,9 +182,7 @@ async def test_sync_balance_skips_when_interval_not_due() -> None:
     notifier = MagicMock(spec=NotificationService)
     last_sync = datetime.now(UTC)
 
-    result = await _sync_balance_if_due(
-        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
-    )
+    result = await _sync_balance_if_due(exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync)
     exchange.fetch_balance.assert_not_called()
     assert portfolio.balance_quote == 10_000.0
     assert result == last_sync
@@ -198,9 +196,7 @@ async def test_sync_balance_updates_when_drift_exceeds_threshold() -> None:
     notifier = MagicMock(spec=NotificationService)
     last_sync = datetime.now(UTC) - timedelta(seconds=301)
 
-    result = await _sync_balance_if_due(
-        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
-    )
+    result = await _sync_balance_if_due(exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync)
     assert portfolio.balance_quote == 9_500.0
     notifier.notify.assert_called_once()
     assert result > last_sync
@@ -214,9 +210,7 @@ async def test_sync_balance_no_alert_when_drift_below_threshold() -> None:
     notifier = MagicMock(spec=NotificationService)
     last_sync = datetime.now(UTC) - timedelta(seconds=301)
 
-    await _sync_balance_if_due(
-        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
-    )
+    await _sync_balance_if_due(exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync)
     assert portfolio.balance_quote == 9_995.0
     notifier.notify.assert_not_called()
 
@@ -230,9 +224,7 @@ async def test_sync_balance_handles_fetch_failure_gracefully() -> None:
     notifier = MagicMock(spec=NotificationService)
     last_sync = datetime.now(UTC) - timedelta(seconds=301)
 
-    result = await _sync_balance_if_due(
-        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
-    )
+    result = await _sync_balance_if_due(exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync)
     assert portfolio.balance_quote == 10_000.0
     notifier.notify.assert_not_called()
     assert result > last_sync
@@ -246,7 +238,5 @@ async def test_sync_balance_skips_when_currency_not_in_response() -> None:
     notifier = MagicMock(spec=NotificationService)
     last_sync = datetime.now(UTC) - timedelta(seconds=301)
 
-    await _sync_balance_if_due(
-        exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync
-    )
+    await _sync_balance_if_due(exchange, portfolio, "USDT", 300, 1.0, notifier, last_sync)
     assert portfolio.balance_quote == 10_000.0

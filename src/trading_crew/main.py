@@ -2,7 +2,7 @@
 
 Initializes all services and runs the trading loop.
 
-CURRENT STATUS (v0.9.0 — Live Balance Sync):
+CURRENT STATUS (v0.10.0 — Position Guard System):
   Each cycle is orchestrated by ``TradingFlow`` — a CrewAI Flow that wires
   the market, strategy, and execution phases with typed routing, event hooks
   (on_order_filled, on_circuit_breaker_activated, on_stop_loss_triggered),
@@ -49,6 +49,7 @@ from trading_crew.agents.sentiment import create_sentiment_agent
 from trading_crew.agents.sentinel import create_sentinel_agent
 from trading_crew.agents.strategist import create_strategist_agent
 from trading_crew.config.settings import (
+    SellGuardMode,
     Settings,
     TokenBudgetDegradeMode,
     get_settings,
@@ -61,6 +62,7 @@ from trading_crew.flows.trading_flow import TradingFlow
 from trading_crew.models.order import OrderRequest, OrderSide
 from trading_crew.models.portfolio import Portfolio, Position
 from trading_crew.risk.circuit_breaker import CircuitBreaker
+from trading_crew.risk.sell_guard import AllowAllSellGuard, BreakEvenSellGuard
 from trading_crew.services.database_service import DatabaseService
 from trading_crew.services.exchange_service import ExchangeCircuitBreakerError, ExchangeService
 from trading_crew.services.execution_service import ExecutionService
@@ -452,7 +454,7 @@ async def main_async() -> None:
     _setup_logging(settings.log_level)
 
     logger.info("=" * 60)
-    logger.info("Trading Crew v0.9.0 starting (Live Balance Sync)")
+    logger.info("Trading Crew v0.10.0 starting (Position Guard System)")
     logger.info("Mode: %s", settings.trading_mode.value)
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))
@@ -562,11 +564,18 @@ async def main_async() -> None:
         ensemble_agreement_threshold=settings.ensemble_agreement_threshold,
     )
     logger.info("Strategies loaded: %s", ", ".join(strategy_runner.strategy_names))
+    sell_guard = (
+        BreakEvenSellGuard()
+        if settings.sell_guard_mode == SellGuardMode.BREAK_EVEN
+        else AllowAllSellGuard()
+    )
     risk_pipeline = RiskPipeline(
         risk_params=settings.risk,
         circuit_breaker=circuit_breaker,
         stop_loss_method=settings.stop_loss_method.value,
         atr_stop_multiplier=settings.atr_stop_multiplier,
+        anti_averaging_down=settings.anti_averaging_down,
+        sell_guard=sell_guard,
     )
     execution_service = ExecutionService(
         exchange_service=exchange_service,
@@ -574,6 +583,7 @@ async def main_async() -> None:
         notification_service=notification_service,
         stale_order_cancel_minutes=settings.stale_order_cancel_minutes,
         stale_partial_fill_cancel_minutes=settings.stale_partial_fill_cancel_minutes,
+        anti_averaging_down_enabled=settings.anti_averaging_down,
     )
 
     # -- Seed portfolio balance -----------------------------------------------

@@ -191,9 +191,19 @@ class TradingFlow(Flow[CycleState]):
             self._portfolio_snapshot = self._portfolio.model_copy(deep=True)
             try:
                 self.state.signals = self._strategy_runner.evaluate(self.state.market_analyses)
+
+                # Pre-fetch break-even prices for all held symbols in one DB
+                # round-trip so the risk pipeline stays I/O-free.
+                held_symbols = list(self._portfolio.positions.keys())
+                break_even_prices: dict[str, float | None] = (
+                    self._db.get_break_even_prices(held_symbols) if held_symbols else {}
+                )
+
                 for sig in self.state.signals:
                     analysis = self.state.market_analyses.get(sig.symbol)
-                    result = self._risk_pipeline.evaluate(sig, self._portfolio, analysis)
+                    result = self._risk_pipeline.evaluate(
+                        sig, self._portfolio, analysis, break_even_prices
+                    )
                     self.state.risk_results.append(result)
                     order_req = self._risk_pipeline.to_order_request(sig, result)
                     if order_req is not None:

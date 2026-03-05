@@ -76,6 +76,13 @@ class TelegramNotifyLevel(StrEnum):
     CRITICAL_ONLY = "critical_only"
 
 
+class SellGuardMode(StrEnum):
+    """Sell-guard behaviour for signal-driven sells."""
+
+    NONE = "none"
+    BREAK_EVEN = "break_even"
+
+
 class Settings(BaseSettings):
     """Central application configuration.
 
@@ -152,6 +159,23 @@ class Settings(BaseSettings):
         description=(
             "Starting balance for paper trading only. "
             "Ignored in live mode — the exchange wallet balance is used instead."
+        ),
+    )
+
+    # -- Position guards ------------------------------------------------------
+    anti_averaging_down: bool = Field(
+        default=True,
+        description=(
+            "Reject new BUY signals if the proposed entry price is at or below "
+            "the existing position's stop-loss price."
+        ),
+    )
+    sell_guard_mode: SellGuardMode = Field(
+        default=SellGuardMode.BREAK_EVEN,
+        description=(
+            "Sell guard mode applied to signal-driven sells. "
+            "'none' disables the guard; 'break_even' holds positions until "
+            "the most recently filled BUY lot is at least at break-even."
         ),
     )
 

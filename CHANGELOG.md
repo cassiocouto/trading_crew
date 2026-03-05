@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-03-04
+
+### Added
+
+- **Anti-averaging-down guard** — new `ANTI_AVERAGING_DOWN` setting (default `true`); rejects BUY signals whose proposed entry price is at or below the existing position's stop-loss price; guard resets automatically when the position fully closes (logs + optional Telegram notification)
+- **Break-even sell guard** — new `SELL_GUARD_MODE` setting (`break_even` by default); holds signal-driven sell orders until the proposed price clears the most recently filled BUY lot's break-even; stop-loss exits bypass the guard by design
+- **`break_even_price` DB column** — nullable `Float` added to `orders` table via Alembic migration; computed once in `ExecutionService._compute_break_even()` when a BUY fill is confirmed and stored via `save_order()`
+- **`get_break_even_prices(symbols)` on `DatabaseService`** — single batched query returning the most recent filled BUY break-even per symbol; called in `TradingFlow.strategy_phase()` so `RiskPipeline` stays I/O-free
+- **`min_profit_margin_pct` field on `RiskParams`** (default `0.0`) — adds an optional profit margin above break-even before a sell is approved; configurable via `RISK__MIN_PROFIT_MARGIN_PCT`
+- **`SellGuard` ABC** in `risk/sell_guard.py` — pluggable interface; ships with `AllowAllSellGuard` (pass-through) and `BreakEvenSellGuard` (LIFO break-even check)
+- **`anti_averaging_down_enabled` flag on `ExecutionService`** — gates the guard-reset Telegram notification so it only fires when the guard is actually active
+- Version bumped to `v0.10.0`
+
+### Changed
+
+- `RiskPipeline.__init__` gains two optional params: `anti_averaging_down: bool = False` and `sell_guard: SellGuard | None = None`
+- `RiskPipeline.evaluate()` gains optional `break_even_prices: dict[str, float | None] | None = None` parameter (passed from `TradingFlow`)
+- `BacktestService` now explicitly passes `anti_averaging_down=False` and `sell_guard=AllowAllSellGuard()` to keep backtest behaviour unaffected
+- `ExecutionService.__init__` gains optional `anti_averaging_down_enabled: bool = False` parameter
+
+---
+
 ## [0.9.0] — 2026-03-04
 
 ### Added

@@ -160,12 +160,14 @@ class ExecutionService:
         notification_service: NotificationService,
         stale_order_cancel_minutes: int = 10,
         stale_partial_fill_cancel_minutes: int = 360,
+        anti_averaging_down_enabled: bool = False,
     ) -> None:
         self._exchange = exchange_service
         self._db = db_service
         self._notif = notification_service
         self._stale_minutes = stale_order_cancel_minutes
         self._stale_partial_minutes = stale_partial_fill_cancel_minutes
+        self._anti_averaging_down_enabled = anti_averaging_down_enabled
 
     # -- Public API -----------------------------------------------------------
 
@@ -584,6 +586,19 @@ class ExecutionService:
 
     # -- Portfolio Reconciliation ---------------------------------------------
 
+    @staticmethod
+    def _compute_break_even(order: Order) -> float | None:
+        """Compute break-even price for a fully filled BUY order.
+
+        break_even = average_fill_price + (total_fee / filled_amount)
+
+        Returns None when fill data is incomplete (should not happen for a
+        FILLED order, but guards against division-by-zero on bad data).
+        """
+        if order.filled_amount > 0 and order.average_fill_price is not None:
+            return order.average_fill_price + (order.total_fee / order.filled_amount)
+        return None
+
     def _reconcile_fill(self, order: Order, portfolio: Portfolio) -> None:
         """Replace tentative Phase 3 reservation with actual fill data.
 
@@ -655,6 +670,11 @@ class ExecutionService:
                     strategy_name=req.strategy_name,
                 )
 
+            # Persist break-even price so the sell guard can read it later
+            # without recomputing from fee/slippage data.
+            if order.status == OrderStatus.FILLED:
+                order.break_even_price = self._compute_break_even(order)
+
         elif req.side == OrderSide.SELL:
             # -- Step 1: Undo tentative SELL ----------------------------------
             # Claw back the tentative credit
@@ -696,6 +716,20 @@ class ExecutionService:
                         update={"amount": remaining}
                     )
             # else: position already cleaned up by tentative; nothing more to adjust
+
+            # When a SELL fully closes the position, the anti-averaging-down
+            # guard resets automatically (no open position → guard inactive).
+            # Emit a notification so the operator knows the threshold was cleared.
+            if req.symbol not in portfolio.positions:
+                logger.info(
+                    "Position fully closed: %s — anti-averaging-down guard reset",
+                    req.symbol,
+                )
+                if self._anti_averaging_down_enabled:
+                    self._notif.notify(
+                        f"Guard reset: *{req.symbol}* position fully closed. "
+                        "Next buy will set a new anti-averaging-down threshold."
+                    )
 
         portfolio.total_fees += fee
 
