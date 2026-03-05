@@ -43,7 +43,9 @@ YAML files for CrewAI agent/task definitions.
 | `ENSEMBLE_AGREEMENT_THRESHOLD` | `0.5` | Fraction of strategies that must agree for ensemble signal (0–1) |
 | `STOP_LOSS_METHOD` | `fixed` | `fixed` (percentage) or `atr` (ATR-based, adapts to volatility) |
 | `ATR_STOP_MULTIPLIER` | `2.0` | Number of ATRs used as stop distance when `STOP_LOSS_METHOD=atr` |
-| `INITIAL_BALANCE_QUOTE` | `10000` | Starting paper balance in quote currency (e.g. USDT) |
+| `INITIAL_BALANCE_QUOTE` | `10000` | Starting balance for **paper trading only** — ignored in live mode (exchange wallet is used instead) |
+| `BALANCE_SYNC_INTERVAL_SECONDS` | `300` | How often (seconds) to re-sync wallet balance from the exchange in live mode. `0` = disabled. No effect in paper mode. |
+| `BALANCE_DRIFT_ALERT_THRESHOLD_PCT` | `1.0` | Send a Telegram alert when the synced balance drifts by this percentage or more from the in-memory value. |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 ## Early Cost Contention Phase (default)
@@ -110,9 +112,9 @@ CrewAI strategy evaluation.
 
 #### Portfolio tracking
 
-The in-memory portfolio starts at `INITIAL_BALANCE_QUOTE` and is updated after
-each cycle's approved order requests. This ensures exposure and concentration
-checks remain accurate across cycles even before execution is wired (Phase 4).
+**Paper mode:** the in-memory portfolio starts at `INITIAL_BALANCE_QUOTE` and is updated after each cycle's approved order requests.
+
+**Live mode:** the portfolio balance is seeded directly from the exchange wallet at startup (via `fetch_balance()`). If the circuit breaker is open or the balance is zero, startup aborts with a clear error message. The balance is then re-synced every `BALANCE_SYNC_INTERVAL_SECONDS` seconds as a pre-cycle step (before any signal evaluation), so deposits and withdrawals made outside the bot are automatically reflected. A Telegram notification fires when the drift exceeds `BALANCE_DRIFT_ALERT_THRESHOLD_PCT`.
 
 ### Daily Budget Degrade Mode
 

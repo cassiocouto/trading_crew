@@ -482,7 +482,16 @@ EXCHANGE_SANDBOX=false
 
 **Step 4:** Start with a small balance. Do not fund the bot with more than you are comfortable losing entirely.
 
-**Step 5:** Start the bot:
+**Step 5:** (Optional) Configure wallet sync. In live mode, the bot reads your real wallet balance from the exchange at startup, and then re-checks it automatically every few minutes. This means if you deposit or withdraw funds externally, the bot will notice and adjust — you do not need to restart it.
+
+```env
+BALANCE_SYNC_INTERVAL_SECONDS=300     # Re-check wallet every 5 minutes (0 = disable)
+BALANCE_DRIFT_ALERT_THRESHOLD_PCT=1.0 # Get a Telegram alert if balance shifts by 1% or more
+```
+
+> **Note:** `INITIAL_BALANCE_QUOTE` is only used for paper trading. In live mode it is completely ignored — the real exchange balance is used instead.
+
+**Step 6:** Start the bot:
 
 ```bash
 make live-trade
@@ -490,7 +499,7 @@ make live-trade
 
 You will see a 5-second warning countdown. This is intentional — if you made a config mistake, you can still `Ctrl+C`.
 
-**Step 6:** Monitor closely for the first few hours. Check:
+**Step 7:** Monitor closely for the first few hours. Check:
 - The dashboard for fills and portfolio changes
 - Telegram for fill and error notifications
 - `trading_crew.log` for any warnings
@@ -518,7 +527,7 @@ This is normal at first — the strategies may not be generating signals above t
 1. **Signals page in the dashboard** — are signals being generated at all? If not, the strategies are not finding entry conditions.
 2. **Log output during the strategy phase** — look for lines mentioning "confidence" or "risk check rejected"
 3. **Circuit breaker** — if `circuit_breaker_tripped: True` appears in the overview page, the bot has halted trading
-4. **`INITIAL_BALANCE_QUOTE`** — if the balance is too low relative to the minimum order size on your exchange, the position sizer may produce zero-size orders
+4. **Balance too low** — in paper mode, check `INITIAL_BALANCE_QUOTE`; in live mode the bot reads the real wallet balance at startup, so check your actual exchange balance. If the balance is too low relative to the minimum order size on your exchange, the position sizer will produce zero-size orders.
 
 ---
 

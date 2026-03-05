@@ -146,7 +146,32 @@ class Settings(BaseSettings):
     ensemble_agreement_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     stop_loss_method: StopLossMethod = StopLossMethod.FIXED
     atr_stop_multiplier: float = Field(default=2.0, gt=0.0, le=10.0)
-    initial_balance_quote: float = Field(default=10_000.0, gt=0.0)
+    initial_balance_quote: float = Field(
+        default=10_000.0,
+        gt=0.0,
+        description=(
+            "Starting balance for paper trading only. "
+            "Ignored in live mode — the exchange wallet balance is used instead."
+        ),
+    )
+
+    # -- Live wallet sync (ignored in paper mode) -----------------------------
+    balance_sync_interval_seconds: int = Field(
+        default=300,
+        ge=0,
+        description=(
+            "How often (seconds) to re-sync portfolio.balance_quote from the exchange "
+            "in live mode. Set to 0 to disable. Has no effect in paper mode."
+        ),
+    )
+    balance_drift_alert_threshold_pct: float = Field(
+        default=1.0,
+        ge=0.0,
+        description=(
+            "Send a Telegram notification when the synced balance drifts by this "
+            "percentage or more from the in-memory value."
+        ),
+    )
 
     # -- Market intelligence pipeline -----------------------------------------
     market_pipeline_mode: MarketPipelineMode = MarketPipelineMode.DETERMINISTIC
@@ -197,6 +222,11 @@ class Settings(BaseSettings):
     def tasks_yaml_path(self) -> Path:
         """Path to the CrewAI tasks definition file."""
         return self.config_dir / "tasks.yaml"
+
+    @property
+    def quote_currency(self) -> str:
+        """Quote currency derived from the first configured symbol (e.g. BTC/USDT → USDT)."""
+        return self.symbols[0].split("/")[1] if self.symbols else "USDT"
 
     @property
     def is_paper(self) -> bool:

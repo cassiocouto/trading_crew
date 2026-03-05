@@ -2,7 +2,7 @@
 
 Initializes all services and runs the trading loop.
 
-CURRENT STATUS (v0.8.0 — Phase 8: Hardening and Optimization):
+CURRENT STATUS (v0.9.0 — Live Balance Sync):
   Each cycle is orchestrated by ``TradingFlow`` — a CrewAI Flow that wires
   the market, strategy, and execution phases with typed routing, event hooks
   (on_order_filled, on_circuit_breaker_activated, on_stop_loss_triggered),
@@ -62,7 +62,7 @@ from trading_crew.models.order import OrderRequest, OrderSide
 from trading_crew.models.portfolio import Portfolio, Position
 from trading_crew.risk.circuit_breaker import CircuitBreaker
 from trading_crew.services.database_service import DatabaseService
-from trading_crew.services.exchange_service import ExchangeService
+from trading_crew.services.exchange_service import ExchangeCircuitBreakerError, ExchangeService
 from trading_crew.services.execution_service import ExecutionService
 from trading_crew.services.market_intelligence_service import MarketIntelligenceService
 from trading_crew.services.notification_service import NotificationService
@@ -133,6 +133,54 @@ def _make_shutdown_handler(
         loop.call_soon_threadsafe(shutdown_event.set)
 
     return _handle
+
+
+async def _sync_balance_if_due(
+    exchange: ExchangeService,
+    portfolio: Portfolio,
+    quote_currency: str,
+    interval_seconds: int,
+    drift_alert_threshold_pct: float,
+    notifier: NotificationService,
+    last_sync: datetime,
+) -> datetime:
+    """Sync portfolio.balance_quote from the exchange if the interval has elapsed.
+
+    Runs as a pre-cycle step so it never races with fill reconciliation.
+    Returns the updated last_sync timestamp (unchanged if interval not yet due).
+    """
+    if (datetime.now(UTC) - last_sync).total_seconds() < interval_seconds:
+        return last_sync
+    try:
+        balances = await exchange.fetch_balance()
+        new_balance = balances.get(quote_currency)
+        if new_balance is None:
+            logger.warning("Balance sync: %s not found in exchange response", quote_currency)
+            return datetime.now(UTC)
+        old_balance = portfolio.balance_quote
+        if abs(new_balance - old_balance) >= 0.01:
+            signed_pct = (new_balance - old_balance) / max(old_balance, 1.0) * 100
+            drift_pct = abs(signed_pct)
+            portfolio.balance_quote = new_balance
+            logger.info(
+                "Balance sync %s: %.4f → %.4f (%+.2f%%)",
+                quote_currency,
+                old_balance,
+                new_balance,
+                signed_pct,
+            )
+            if drift_pct >= drift_alert_threshold_pct:
+                notifier.notify(
+                    f"Balance sync: {quote_currency} {old_balance:.4f} → "
+                    f"{new_balance:.4f} ({signed_pct:+.2f}%)"
+                )
+        else:
+            logger.debug(
+                "Balance sync %s: no meaningful change (%.4f)", quote_currency, old_balance
+            )
+    except Exception as exc:
+        logger.warning("Balance sync failed: %s", exc)
+    return datetime.now(UTC)
 
 
 def _load_yaml(path: str) -> dict[str, dict[str, str]]:
@@ -429,7 +477,12 @@ async def main_async() -> None:
         settings.stop_loss_method.value,
         settings.atr_stop_multiplier,
     )
-    logger.info("Initial balance: %.2f", settings.initial_balance_quote)
+    logger.info(
+        "Balance source: %s",
+        "exchange wallet (live)"
+        if settings.is_live
+        else f"config ({settings.initial_balance_quote:.2f})",
+    )
     logger.info("Cost contention mode: %s", settings.cost_contention_enabled)
     if settings.cost_contention_enabled:
         logger.info(
@@ -523,10 +576,35 @@ async def main_async() -> None:
         stale_partial_fill_cancel_minutes=settings.stale_partial_fill_cancel_minutes,
     )
 
-    portfolio = Portfolio(
-        balance_quote=settings.initial_balance_quote,
-        peak_balance=settings.initial_balance_quote,
-    )
+    # -- Seed portfolio balance -----------------------------------------------
+    if settings.is_live:
+        try:
+            live_balances = await exchange_service.fetch_balance()
+        except ExchangeCircuitBreakerError as exc:
+            raise RuntimeError(
+                "Live mode: exchange circuit breaker is open — cannot fetch wallet balance. "
+                f"Wait for the cooldown or restart. Detail: {exc}"
+            ) from exc
+        seed_balance = live_balances.get(settings.quote_currency, 0.0)
+        if seed_balance <= 0:
+            raise RuntimeError(
+                f"Live mode: {settings.quote_currency} balance is zero or unavailable. "
+                "Check API credentials, permissions, and account funding."
+            )
+        logger.info(
+            "Live balance seeded from exchange: %.4f %s",
+            seed_balance,
+            settings.quote_currency,
+        )
+    else:
+        seed_balance = settings.initial_balance_quote
+        logger.info(
+            "Paper balance seeded from config: %.4f %s",
+            seed_balance,
+            settings.quote_currency,
+        )
+
+    portfolio = Portfolio(balance_quote=seed_balance, peak_balance=seed_balance)
 
     # -- Load YAML configs ----------------------------------------------------
     agent_configs = _load_yaml(str(settings.agents_yaml_path))
@@ -602,12 +680,27 @@ async def main_async() -> None:
     # Cross-cycle cache: most recent market analyses, used as a stop-loss
     # price fallback when the market phase is skipped this cycle.
     last_market_analyses: dict[str, MarketAnalysis] = {}
+    # Timestamp of the last wallet balance sync (live mode only).
+    last_balance_sync: datetime = datetime.now(UTC)
 
     while not shutdown_event.is_set():
         cycle += 1
         logger.info("--- Cycle %d ---", cycle)
 
         try:
+            # Pre-cycle wallet sync: keeps balance_quote accurate in live mode
+            # without racing with fill reconciliation (runs before any orders).
+            if settings.is_live and settings.balance_sync_interval_seconds > 0:
+                last_balance_sync = await _sync_balance_if_due(
+                    exchange_service,
+                    portfolio,
+                    settings.quote_currency,
+                    settings.balance_sync_interval_seconds,
+                    settings.balance_drift_alert_threshold_pct,
+                    notification_service,
+                    last_balance_sync,
+                )
+
             _refresh_budget_day(settings, budget_state)
             now = time.monotonic()
             plan = _build_run_plan(

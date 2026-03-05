@@ -178,11 +178,29 @@ Understanding the cycle is the key to understanding the whole codebase.
 
 `main.py` builds all services and crews once (at startup), then enters an `asyncio` event loop. Each iteration of the loop:
 
-1. Computes a `RunPlan` — which phases are due this cycle based on their independent schedules and the budget degrade state
-2. Instantiates a fresh `TradingFlow` with the current state
-3. Calls `await flow.akickoff()` — runs the entire cycle
-4. Accumulates token usage and updates the budget counter
-5. Sleeps for `LOOP_INTERVAL_SECONDS`
+1. (Live mode only) Calls `_sync_balance_if_due()` — re-syncs `portfolio.balance_quote` from the exchange if `BALANCE_SYNC_INTERVAL_SECONDS` has elapsed since the last sync
+2. Computes a `RunPlan` — which phases are due this cycle based on their independent schedules and the budget degrade state
+3. Instantiates a fresh `TradingFlow` with the current state
+4. Calls `await flow.akickoff()` — runs the entire cycle
+5. Accumulates token usage and updates the budget counter
+6. Sleeps for `LOOP_INTERVAL_SECONDS`
+
+#### Portfolio balance seeding
+
+At startup, the source of truth for `portfolio.balance_quote` depends on the trading mode:
+
+- **Paper mode:** `balance_quote` is set to `INITIAL_BALANCE_QUOTE` from settings. This is the only mode where that setting has any effect.
+- **Live mode:** `balance_quote` is seeded from `exchange_service.fetch_balance()` using the quote currency inferred from the first configured symbol (e.g. `BTC/USDT` → `USDT`). If the circuit breaker is open or the returned balance is zero, startup raises a `RuntimeError` with a clear diagnostic message.
+
+#### Live wallet sync (`_sync_balance_if_due`)
+
+`_sync_balance_if_due(exchange, portfolio, quote_currency, interval_seconds, drift_alert_threshold_pct, notifier, last_sync)` runs as a **pre-cycle step** — before any signal evaluation or order placement. This timing is deliberate: the trading loop is single-threaded `asyncio`, so updating `portfolio.balance_quote` before the cycle begins means no fill reconciliation is in progress, eliminating any staleness race.
+
+The helper:
+1. Returns immediately if the interval has not elapsed since `last_sync`
+2. Calls `fetch_balance()` (no-op dict in paper mode, so the guard above is a safety net)
+3. If the new balance differs from the in-memory value by more than `0.01`, updates `portfolio.balance_quote`, logs the drift, and optionally fires a `NotificationService.notify()` call when drift exceeds `BALANCE_DRIFT_ALERT_THRESHOLD_PCT`
+4. Returns the updated `last_sync` timestamp
 
 The `TradingFlow` is not reused across cycles. Each cycle gets a fresh instance with a fresh `CycleState`. The shared mutable state (portfolio, circuit breaker) is passed by reference.
 

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-03-04
+
+### Added
+
+- **Live wallet balance seeding** — in live mode, `portfolio.balance_quote` is now seeded from `exchange_service.fetch_balance()` at startup instead of `INITIAL_BALANCE_QUOTE`; startup aborts with a clear error if the circuit breaker is open or the balance is zero
+- **Pre-cycle wallet sync** — `_sync_balance_if_due()` helper runs at the top of each trading cycle (live mode only) to re-sync `portfolio.balance_quote` from the exchange; catches external deposits and withdrawals without restarting the bot
+- **`BALANCE_SYNC_INTERVAL_SECONDS` setting** (default `300`) — how often the wallet sync runs; set to `0` to disable
+- **`BALANCE_DRIFT_ALERT_THRESHOLD_PCT` setting** (default `1.0`) — sends a Telegram notification when the synced balance drifts by this percentage or more
+- **`quote_currency` computed property** on `Settings` — derived from the first configured symbol (e.g. `BTC/USDT` → `USDT`); used throughout balance seeding and sync
+- Version bumped to `v0.9.0`
+
+### Changed
+
+- `INITIAL_BALANCE_QUOTE` now applies **only to paper trading**; it is ignored in live mode
+
+---
+
 ## [0.8.0] — 2026-03-04
 
 ### Added
