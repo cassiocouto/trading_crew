@@ -70,12 +70,12 @@ def get_strategy_stats(db: DatabaseService = Depends(get_db)) -> list[StrategySt
             select(
                 TradeSignalRecord.strategy_name,
                 func.count().label("total_signals"),
-                func.sum(
-                    case((TradeSignalRecord.signal_type == "buy", 1), else_=0)
-                ).label("buy_signals"),
-                func.sum(
-                    case((TradeSignalRecord.signal_type == "sell", 1), else_=0)
-                ).label("sell_signals"),
+                func.sum(case((TradeSignalRecord.signal_type == "buy", 1), else_=0)).label(
+                    "buy_signals"
+                ),
+                func.sum(case((TradeSignalRecord.signal_type == "sell", 1), else_=0)).label(
+                    "sell_signals"
+                ),
                 func.avg(TradeSignalRecord.confidence).label("avg_confidence"),
             ).group_by(TradeSignalRecord.strategy_name)
         ).all()
@@ -84,9 +84,7 @@ def get_strategy_stats(db: DatabaseService = Depends(get_db)) -> list[StrategySt
             select(
                 OrderRecord.strategy_name,
                 func.count().label("orders_placed"),
-                func.sum(
-                    case((OrderRecord.status == "filled", 1), else_=0)
-                ).label("orders_filled"),
+                func.sum(case((OrderRecord.status == "filled", 1), else_=0)).label("orders_filled"),
             ).group_by(OrderRecord.strategy_name)
         ).all()
 

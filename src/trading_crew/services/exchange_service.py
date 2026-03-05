@@ -306,9 +306,7 @@ class ExchangeService:
 
         return all_candles
 
-    async def fetch_order_book(
-        self, symbol: str, limit: int = 20
-    ) -> dict[str, list[list[float]]]:
+    async def fetch_order_book(self, symbol: str, limit: int = 20) -> dict[str, list[list[float]]]:
         """Fetch the order book for a trading pair.
 
         Args:
@@ -555,9 +553,7 @@ class ExchangeService:
         try:
             rounded_amount = float(self._exchange.amount_to_precision(symbol, amount))
         except Exception as exc:
-            logger.warning(
-                "amount_to_precision failed for %s: %s — using raw amount", symbol, exc
-            )
+            logger.warning("amount_to_precision failed for %s: %s — using raw amount", symbol, exc)
             rounded_amount = amount
 
         rounded_price: float | None = None
@@ -596,9 +592,7 @@ class ExchangeService:
             "amount_min": (
                 float(amount_limits["min"]) if amount_limits.get("min") is not None else None
             ),
-            "cost_min": (
-                float(cost_limits["min"]) if cost_limits.get("min") is not None else None
-            ),
+            "cost_min": (float(cost_limits["min"]) if cost_limits.get("min") is not None else None),
             "price_min": (
                 float(price_limits["min"]) if price_limits.get("min") is not None else None
             ),
@@ -625,9 +619,7 @@ class ExchangeService:
         """Increment the CB failure counter; open the CB if threshold reached."""
         self._consecutive_rate_limit_failures += 1
         if self._consecutive_rate_limit_failures >= self._rate_limit_threshold:
-            self._rate_limit_cooldown_until = (
-                time.monotonic() + self._rate_limit_cooldown_seconds
-            )
+            self._rate_limit_cooldown_until = time.monotonic() + self._rate_limit_cooldown_seconds
             logger.error(
                 "Exchange circuit breaker OPENED after %d consecutive rate-limit failures. "
                 "Cooldown: %ds",

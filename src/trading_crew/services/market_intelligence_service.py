@@ -63,12 +63,16 @@ class MarketIntelligenceService:
         """Execute one full deterministic market-intelligence cycle."""
         analyses: dict[str, MarketAnalysis] = {}
         for symbol in symbols:
-            analysis = await self._run_symbol(symbol, timeframe=timeframe, candle_limit=candle_limit)
+            analysis = await self._run_symbol(
+                symbol, timeframe=timeframe, candle_limit=candle_limit
+            )
             if analysis is not None:
                 analyses[symbol] = analysis
         return analyses
 
-    async def _run_symbol(self, symbol: str, timeframe: str, candle_limit: int) -> MarketAnalysis | None:
+    async def _run_symbol(
+        self, symbol: str, timeframe: str, candle_limit: int
+    ) -> MarketAnalysis | None:
         try:
             ticker = await self._exchange.fetch_ticker(symbol)
             self._db.save_ticker(ticker)

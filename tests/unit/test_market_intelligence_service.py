@@ -25,7 +25,9 @@ class _ExchangeStub:
             timestamp=datetime.now(UTC),
         )
 
-    async def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 100) -> list[OHLCV]:
+    async def fetch_ohlcv(
+        self, symbol: str, timeframe: str = "1h", limit: int = 100
+    ) -> list[OHLCV]:
         start = datetime.now(UTC) - timedelta(minutes=limit)
         candles: list[OHLCV] = []
         for i in range(limit):

@@ -26,9 +26,11 @@ def get_cycles(
     from sqlalchemy import select
 
     with get_session(db._engine) as session:
-        records = session.execute(
-            select(CycleRecord).order_by(CycleRecord.id.desc()).limit(limit)
-        ).scalars().all()
+        records = (
+            session.execute(select(CycleRecord).order_by(CycleRecord.id.desc()).limit(limit))
+            .scalars()
+            .all()
+        )
         return [_cycle_to_response(r) for r in records]
 
 

@@ -202,15 +202,23 @@ class _ExchangeStub:
 
     async def create_order(self, request: OrderRequest) -> Order:
         self.created_orders.append(request)
-        return _make_filled_order(request, self._fill_price) if self.is_paper else _make_open_order(request)
+        return (
+            _make_filled_order(request, self._fill_price)
+            if self.is_paper
+            else _make_open_order(request)
+        )
 
     async def fetch_order_status(self, order_id: str, symbol: str) -> dict:
-        return self._status_responses.get(order_id, {"status": "open", "filled": 0, "remaining": 0.01, "average": None})
+        return self._status_responses.get(
+            order_id, {"status": "open", "filled": 0, "remaining": 0.01, "average": None}
+        )
 
     async def cancel_order(self, order_id: str, symbol: str) -> None:
         self.cancelled_orders.append(order_id)
 
-    async def normalize_order_precision(self, symbol: str, amount: float, price: float | None) -> tuple[float, float | None]:
+    async def normalize_order_precision(
+        self, symbol: str, amount: float, price: float | None
+    ) -> tuple[float, float | None]:
         return round(amount, 6), round(price, 2) if price else None
 
     async def get_market_limits(self, symbol: str) -> dict:
@@ -218,7 +226,10 @@ class _ExchangeStub:
 
     async def fetch_ticker(self, symbol: str) -> Any:
         from types import SimpleNamespace
-        return SimpleNamespace(ask=self._fill_price, last=self._fill_price, bid=self._fill_price - 10)
+
+        return SimpleNamespace(
+            ask=self._fill_price, last=self._fill_price, bid=self._fill_price - 10
+        )
 
 
 class _FailingExchangeStub(_ExchangeStub):
@@ -505,7 +516,9 @@ class TestPollFullFill:
             "remaining": 0.0,
             "average": 49_000.0,
         }
-        record = _make_db_record(order_id, requested_amount=0.02, filled_amount=0.0, requested_price=49_000.0)
+        record = _make_db_record(
+            order_id, requested_amount=0.02, filled_amount=0.0, requested_price=49_000.0
+        )
         db = _DBStub()
         db._open_records = [record]
         svc, _, db, _ = _make_service(exchange=ex, db=db)
@@ -520,7 +533,12 @@ class TestPollFullFill:
     async def test_fill_notification_sent(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "ord-fill-notif"
-        ex._status_responses[order_id] = {"status": "closed", "filled": 0.01, "remaining": 0.0, "average": 50_000.0}
+        ex._status_responses[order_id] = {
+            "status": "closed",
+            "filled": 0.01,
+            "remaining": 0.0,
+            "average": 50_000.0,
+        }
         db = _DBStub()
         db._open_records = [_make_db_record(order_id)]
         svc, _, _, nf = _make_service(exchange=ex, db=db)
@@ -554,7 +572,9 @@ class TestPartialFillAccumulation:
             "remaining": 0.005,
             "average": 50_000.0,
         }
-        record = _make_db_record(order_id, requested_amount=0.01, filled_amount=0.0, requested_price=50_000.0)
+        record = _make_db_record(
+            order_id, requested_amount=0.01, filled_amount=0.0, requested_price=50_000.0
+        )
         db = _DBStub()
         db._open_records = [record]
         svc, _, _, nf = _make_service(exchange=ex, db=db)
@@ -628,7 +648,12 @@ class TestStaleFullyOpenCancellation:
     async def test_stale_cancel_notification_sent(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "stale-open-notif"
-        ex._status_responses[order_id] = {"status": "open", "filled": 0.0, "remaining": 0.01, "average": None}
+        ex._status_responses[order_id] = {
+            "status": "open",
+            "filled": 0.0,
+            "remaining": 0.01,
+            "average": None,
+        }
         record = _make_db_record(order_id, created_at=datetime.now(UTC) - timedelta(minutes=20))
         db = _DBStub()
         db._open_records = [record]
@@ -643,7 +668,12 @@ class TestStaleFullyOpenCancellation:
     async def test_fresh_order_not_cancelled(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "fresh-open-1"
-        ex._status_responses[order_id] = {"status": "open", "filled": 0.0, "remaining": 0.01, "average": None}
+        ex._status_responses[order_id] = {
+            "status": "open",
+            "filled": 0.0,
+            "remaining": 0.01,
+            "average": None,
+        }
         record = _make_db_record(order_id, created_at=datetime.now(UTC) - timedelta(minutes=2))
         db = _DBStub()
         db._open_records = [record]
@@ -1000,7 +1030,9 @@ class TestPortfolioReconciliationMath:
             "remaining": 0.005,
             "average": 50_000.0,
         }
-        record = _make_db_record(order_id, filled_amount=0.0, requested_amount=0.01, requested_price=50_000.0)
+        record = _make_db_record(
+            order_id, filled_amount=0.0, requested_amount=0.01, requested_price=50_000.0
+        )
         db = _DBStub()
         db._open_records = [record]
         svc, _, _, _ = _make_service(exchange=ex, db=db)
@@ -1033,7 +1065,12 @@ class TestPortfolioPersistence:
     async def test_save_portfolio_reflects_updated_state(self) -> None:
         ex = _ExchangeStub(paper=False)
         order_id = "save-port-1"
-        ex._status_responses[order_id] = {"status": "closed", "filled": 0.01, "remaining": 0.0, "average": 50_000.0}
+        ex._status_responses[order_id] = {
+            "status": "closed",
+            "filled": 0.01,
+            "remaining": 0.0,
+            "average": 50_000.0,
+        }
         db = _DBStub()
         db._open_records = [_make_db_record(order_id)]
         svc, _, db, _ = _make_service(exchange=ex, db=db)
@@ -1073,9 +1110,16 @@ class TestNotificationTriggers:
     async def test_cancel_notification_on_stale(self) -> None:
         ex = _ExchangeStub(paper=False)
         oid = "stale-notif-1"
-        ex._status_responses[oid] = {"status": "open", "filled": 0.0, "remaining": 0.01, "average": None}
+        ex._status_responses[oid] = {
+            "status": "open",
+            "filled": 0.0,
+            "remaining": 0.01,
+            "average": None,
+        }
         db = _DBStub()
-        db._open_records = [_make_db_record(oid, created_at=datetime.now(UTC) - timedelta(minutes=30))]
+        db._open_records = [
+            _make_db_record(oid, created_at=datetime.now(UTC) - timedelta(minutes=30))
+        ]
         svc, _, _, nf = _make_service(exchange=ex, db=db, stale_minutes=10)
         await svc.poll_and_reconcile(_make_portfolio())
         assert any("cancel" in m.lower() or "stale" in m.lower() for m in nf.notifications)

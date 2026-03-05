@@ -490,9 +490,7 @@ class TestAuth:
         app.state.db = db_service
         app.state.ws_poll_interval = 60
 
-        with patch(
-            "trading_crew.config.settings.get_settings"
-        ) as mock_settings:
+        with patch("trading_crew.config.settings.get_settings") as mock_settings:
             mock_settings.return_value.dashboard_api_key = "secret-key"
             mock_settings.return_value.dashboard_cors_origins = ["*"]
             mock_settings.return_value.dashboard_host = "0.0.0.0"

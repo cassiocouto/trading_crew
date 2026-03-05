@@ -99,7 +99,9 @@ def create_app() -> FastAPI:
                 return await call_next(request)
             key = request.headers.get("X-API-Key", "")
             if key != _api_key:
-                return Response(content='{"detail":"Forbidden"}', status_code=403, media_type="application/json")
+                return Response(
+                    content='{"detail":"Forbidden"}', status_code=403, media_type="application/json"
+                )
             return await call_next(request)
 
     app.include_router(portfolio.router, prefix="/api/portfolio")

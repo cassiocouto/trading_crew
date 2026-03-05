@@ -63,9 +63,7 @@ async def ws_events_handler(ws: WebSocket) -> None:
     await manager.connect(ws)
 
     # Initialise watermarks from current max IDs so we only push *new* rows.
-    cycle_wm, order_wm, signal_wm = await asyncio.to_thread(
-        _get_initial_watermarks, db
-    )
+    cycle_wm, order_wm, signal_wm = await asyncio.to_thread(_get_initial_watermarks, db)
 
     try:
         while True:
@@ -123,9 +121,13 @@ def _collect_events(
 
     with get_session(db._engine) as session:
         # --- cycle_complete / circuit_breaker ---
-        new_cycles = session.execute(
-            select(CycleRecord).where(CycleRecord.id > cycle_wm).order_by(CycleRecord.id)
-        ).scalars().all()
+        new_cycles = (
+            session.execute(
+                select(CycleRecord).where(CycleRecord.id > cycle_wm).order_by(CycleRecord.id)
+            )
+            .scalars()
+            .all()
+        )
         for record in new_cycles:
             cycle_payload = {
                 "cycle_number": record.cycle_number,
@@ -140,12 +142,16 @@ def _collect_events(
             cycle_wm = max(cycle_wm, record.id)
 
         # --- order_filled ---
-        new_fills = session.execute(
-            select(OrderRecord).where(
-                OrderRecord.id > order_wm,
-                OrderRecord.status == "filled",
+        new_fills = (
+            session.execute(
+                select(OrderRecord).where(
+                    OrderRecord.id > order_wm,
+                    OrderRecord.status == "filled",
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for order_rec in new_fills:
             order_payload = {
                 "exchange_order_id": order_rec.exchange_order_id,
@@ -165,9 +171,11 @@ def _collect_events(
             order_wm = new_orders_max
 
         # --- signal_generated ---
-        new_signals = session.execute(
-            select(TradeSignalRecord).where(TradeSignalRecord.id > signal_wm)
-        ).scalars().all()
+        new_signals = (
+            session.execute(select(TradeSignalRecord).where(TradeSignalRecord.id > signal_wm))
+            .scalars()
+            .all()
+        )
         for signal_rec in new_signals:
             signal_payload = {
                 "symbol": signal_rec.symbol,

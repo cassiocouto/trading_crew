@@ -152,9 +152,7 @@ class TradingFlow(Flow[CycleState]):
         ):
             logger.info("[1/3] Running Market Intelligence Crew...")
             market_result = self._market_crew.kickoff()
-            logger.info(
-                "Market Crew completed. Raw output length: %d", len(str(market_result))
-            )
+            logger.info("Market Crew completed. Raw output length: %d", len(str(market_result)))
 
         # Apply market data gate: disable strategy/execution when no analyses
         # are available. Only relevant for modes that produce deterministic
@@ -231,9 +229,7 @@ class TradingFlow(Flow[CycleState]):
         ):
             logger.info("[2/3] Running Strategy Crew...")
             strategy_result = self._strategy_crew.kickoff()
-            logger.info(
-                "Strategy Crew completed. Raw output length: %d", len(str(strategy_result))
-            )
+            logger.info("Strategy Crew completed. Raw output length: %d", len(str(strategy_result)))
 
     @router(strategy_phase)
     async def route_after_strategy(self) -> str:
@@ -279,8 +275,7 @@ class TradingFlow(Flow[CycleState]):
                 )
                 if self.state.filled_orders:
                     logger.info(
-                        "Portfolio (post-fill): balance=%.4f, positions=%d, "
-                        "realized_pnl=%.4f",
+                        "Portfolio (post-fill): balance=%.4f, positions=%d, realized_pnl=%.4f",
                         self._portfolio.balance_quote,
                         len(self._portfolio.positions),
                         self._portfolio.realized_pnl,
@@ -323,8 +318,7 @@ class TradingFlow(Flow[CycleState]):
                 else "n/a (not checked)"
             )
             logger.info(
-                "[3/3] Skipping Execution pipeline "
-                "(interval not due or no open orders: %s)",
+                "[3/3] Skipping Execution pipeline (interval not due or no open orders: %s)",
                 open_orders_label,
             )
             _rollback_portfolio(self._portfolio, self._portfolio_snapshot, self.state)
@@ -396,9 +390,7 @@ class TradingFlow(Flow[CycleState]):
                 self._portfolio.realized_pnl,
             )
         except Exception:
-            logger.exception(
-                "_on_order_filled: failed to save PnL snapshot for order %s", order.id
-            )
+            logger.exception("_on_order_filled: failed to save PnL snapshot for order %s", order.id)
         # Re-check CB; if tripped, next cycle's _route_after_market returns "halt"
         self._circuit_breaker.check(self._portfolio)
 

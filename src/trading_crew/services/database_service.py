@@ -432,9 +432,9 @@ class DatabaseService:
             )
             stale_ids = list(session.execute(stmt).scalars().all())
             if stale_ids:
-                session.query(PortfolioRecord).filter(
-                    PortfolioRecord.id.in_(stale_ids)
-                ).delete(synchronize_session=False)
+                session.query(PortfolioRecord).filter(PortfolioRecord.id.in_(stale_ids)).delete(
+                    synchronize_session=False
+                )
                 pruned = len(stale_ids)
 
         logger.debug(
@@ -535,12 +535,12 @@ class DatabaseService:
             raise TypeError(f"Expected Portfolio, got {type(portfolio)}")
 
         with get_session(self._engine) as session:
-            existing = (
-                session.query(CycleRecord)
-                .filter_by(cycle_number=state.cycle_number)
-                .first()
+            existing = session.query(CycleRecord).filter_by(cycle_number=state.cycle_number).first()
+            timestamp = (
+                state.timestamp
+                if state.timestamp.tzinfo is None
+                else state.timestamp.replace(tzinfo=None)
             )
-            timestamp = state.timestamp if state.timestamp.tzinfo is None else state.timestamp.replace(tzinfo=None)
             if existing:
                 existing.timestamp = timestamp
                 existing.num_signals = len(state.signals)

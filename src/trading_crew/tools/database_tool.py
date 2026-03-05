@@ -158,8 +158,12 @@ class SaveOrderTool(BaseTool):
                 order_type=OrderType(params["order_type"]),
                 amount=float(params["requested_amount"]),
                 price=float(params["requested_price"]) if params.get("requested_price") else None,
-                stop_loss_price=float(params["stop_loss_price"]) if params.get("stop_loss_price") else None,
-                take_profit_price=float(params["take_profit_price"]) if params.get("take_profit_price") else None,
+                stop_loss_price=float(params["stop_loss_price"])
+                if params.get("stop_loss_price")
+                else None,
+                take_profit_price=float(params["take_profit_price"])
+                if params.get("take_profit_price")
+                else None,
                 strategy_name=params.get("strategy_name", ""),
             )
             order = Order(
@@ -167,7 +171,9 @@ class SaveOrderTool(BaseTool):
                 request=request,
                 status=OrderStatus(params["status"]),
                 filled_amount=float(params.get("filled_amount", 0)),
-                average_fill_price=float(params["average_fill_price"]) if params.get("average_fill_price") else None,
+                average_fill_price=float(params["average_fill_price"])
+                if params.get("average_fill_price")
+                else None,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
             )
@@ -276,8 +282,12 @@ class SavePortfolioTool(BaseTool):
                     entry_price=float(pos["entry_price"]),
                     amount=float(pos["amount"]),
                     current_price=float(pos.get("current_price", pos["entry_price"])),
-                    stop_loss_price=float(pos["stop_loss_price"]) if pos.get("stop_loss_price") else None,
-                    take_profit_price=float(pos["take_profit_price"]) if pos.get("take_profit_price") else None,
+                    stop_loss_price=float(pos["stop_loss_price"])
+                    if pos.get("stop_loss_price")
+                    else None,
+                    take_profit_price=float(pos["take_profit_price"])
+                    if pos.get("take_profit_price")
+                    else None,
                     strategy_name=pos.get("strategy_name", ""),
                 )
                 for sym, pos in params.get("positions", {}).items()
@@ -289,11 +299,13 @@ class SavePortfolioTool(BaseTool):
                 positions=positions,
             )
             self.db_service.save_portfolio(portfolio)
-            return json.dumps({
-                "saved": True,
-                "balance_quote": portfolio.balance_quote,
-                "num_positions": len(portfolio.positions),
-            })
+            return json.dumps(
+                {
+                    "saved": True,
+                    "balance_quote": portfolio.balance_quote,
+                    "num_positions": len(portfolio.positions),
+                }
+            )
         except Exception as e:
             return json.dumps({"error": f"Failed to save portfolio: {e}"})
 

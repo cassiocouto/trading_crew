@@ -151,8 +151,6 @@ def _utc_today() -> date:
     return datetime.now(UTC).date()
 
 
-
-
 def _refresh_budget_day(settings: Settings, budget_state: BudgetRuntimeState) -> None:
     """Reset daily budget counters when UTC day changes."""
     if not settings.daily_token_budget_enabled:

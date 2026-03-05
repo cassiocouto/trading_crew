@@ -65,7 +65,9 @@ def db_service(db_engine):
 
 @pytest.fixture()
 def mock_exchange():
-    return make_mock_exchange(symbol=SYMBOL, exchange_id=EXCHANGE, ticker_price=50_000.0, n_candles=60)
+    return make_mock_exchange(
+        symbol=SYMBOL, exchange_id=EXCHANGE, ticker_price=50_000.0, n_candles=60
+    )
 
 
 def _make_settings(**overrides):
@@ -96,7 +98,9 @@ def _make_plan(**overrides) -> RunPlan:
 
 
 def _make_budget() -> BudgetRuntimeState:
-    return BudgetRuntimeState(token_budget_day=date.today(), degrade_level=BudgetDegradeLevel.NORMAL)
+    return BudgetRuntimeState(
+        token_budget_day=date.today(), degrade_level=BudgetDegradeLevel.NORMAL
+    )
 
 
 @pytest.mark.integration

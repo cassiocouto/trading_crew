@@ -32,9 +32,7 @@ def get_status(db: DatabaseService = Depends(get_db)) -> SystemStatusResponse:
             session.execute(select(func.count()).select_from(CycleRecord)).scalar_one() or 0
         )
         latest_cb = session.execute(
-            select(CycleRecord.circuit_breaker_tripped)
-            .order_by(CycleRecord.id.desc())
-            .limit(1)
+            select(CycleRecord.circuit_breaker_tripped).order_by(CycleRecord.id.desc()).limit(1)
         ).scalar_one_or_none()
         cb_active = bool(latest_cb)
 

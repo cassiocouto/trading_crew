@@ -127,8 +127,7 @@ class BacktestService:
         cfg = self._config
         if len(candles) < cfg.min_candles_for_analysis:
             raise ValueError(
-                f"Not enough candles: need {cfg.min_candles_for_analysis}, "
-                f"got {len(candles)}"
+                f"Not enough candles: need {cfg.min_candles_for_analysis}, got {len(candles)}"
             )
 
         portfolio = Portfolio(
@@ -205,7 +204,9 @@ class BacktestService:
                 )
                 completed_trades.append(trade)
 
-        metrics = self._compute_metrics(completed_trades, equity_curve, cfg.initial_balance, timeframe)
+        metrics = self._compute_metrics(
+            completed_trades, equity_curve, cfg.initial_balance, timeframe
+        )
 
         return BacktestResult(
             symbol=symbol,

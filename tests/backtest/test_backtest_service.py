@@ -203,7 +203,6 @@ class TestEntryBar:
     def test_no_duplicate_buy_overwrites_position(self) -> None:
         """Two consecutive BUY signals must not overwrite an open position."""
 
-
         candles = _make_bullish_candles(150)
         runner = StrategyRunner([EMACrossoverStrategy()])
         svc = BacktestService(runner, RiskParams(), BacktestConfig())

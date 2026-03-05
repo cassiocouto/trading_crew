@@ -64,12 +64,8 @@ def test_backtest_regression_ema_crossover():
         timeframe="1h",
     )
 
-    assert result.total_trades >= 1, (
-        f"Expected at least 1 trade, got {result.total_trades}"
-    )
-    assert result.sharpe_ratio == result.sharpe_ratio, (
-        "Sharpe ratio must not be NaN"
-    )
+    assert result.total_trades >= 1, f"Expected at least 1 trade, got {result.total_trades}"
+    assert result.sharpe_ratio == result.sharpe_ratio, "Sharpe ratio must not be NaN"
     assert result.win_rate_pct >= 0.0, "Win rate must be non-negative"
     assert result.win_rate_pct <= 100.0, "Win rate must not exceed 100"
 
@@ -111,12 +107,6 @@ def test_backtest_regression_metrics_within_reasonable_bounds():
     assert result.total_trades >= 1, "Strategy must produce at least 1 trade"
     # The Sharpe ratio is not bounded above on perfectly bullish synthetic data;
     # only guard against NaN and clearly pathological negative values.
-    assert result.sharpe_ratio == result.sharpe_ratio, (
-        "Sharpe ratio must not be NaN"
-    )
-    assert result.sharpe_ratio > -100.0, (
-        f"Sharpe ratio implausibly negative: {result.sharpe_ratio}"
-    )
-    assert 0.0 <= result.win_rate_pct <= 100.0, (
-        f"Win rate out of [0, 100]: {result.win_rate_pct}"
-    )
+    assert result.sharpe_ratio == result.sharpe_ratio, "Sharpe ratio must not be NaN"
+    assert result.sharpe_ratio > -100.0, f"Sharpe ratio implausibly negative: {result.sharpe_ratio}"
+    assert 0.0 <= result.win_rate_pct <= 100.0, f"Win rate out of [0, 100]: {result.win_rate_pct}"

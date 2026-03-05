@@ -28,6 +28,7 @@ from trading_crew.models.portfolio import PnLSnapshot, Portfolio, Position
 # Helpers / stubs
 # ---------------------------------------------------------------------------
 
+
 def _make_settings(**overrides):
     """Return a minimal Settings-like stub."""
     from trading_crew.config.settings import (
@@ -36,6 +37,7 @@ def _make_settings(**overrides):
         Settings,
         StrategyPipelineMode,
     )
+
     s = MagicMock(spec=Settings)
     s.market_pipeline_mode = MarketPipelineMode.DETERMINISTIC
     s.strategy_pipeline_mode = StrategyPipelineMode.DETERMINISTIC
@@ -63,8 +65,11 @@ def _make_plan(**overrides) -> RunPlan:
     return plan
 
 
-def _make_budget(degrade_level: BudgetDegradeLevel = BudgetDegradeLevel.NORMAL) -> BudgetRuntimeState:
+def _make_budget(
+    degrade_level: BudgetDegradeLevel = BudgetDegradeLevel.NORMAL,
+) -> BudgetRuntimeState:
     from datetime import date
+
     b = BudgetRuntimeState(token_budget_day=date.today())
     b.degrade_level = degrade_level
     return b
@@ -91,6 +96,7 @@ def _make_position(
 
 def _make_analysis(symbol: str = "BTC/USDT", current_price: float = 50_000.0) -> MarketAnalysis:
     from datetime import UTC, datetime
+
     return MarketAnalysis(
         symbol=symbol,
         exchange="binance",
@@ -113,8 +119,12 @@ def _make_order(symbol: str = "BTC/USDT") -> Order:
 def _make_exec_svc_mock(**kwargs) -> MagicMock:
     """Create an execution service mock with AsyncMock for async methods."""
     mock = MagicMock(**kwargs)
-    mock.process_order_requests = AsyncMock(return_value=MagicMock(placed=[], filled=[], cancelled=[], failed=[]))
-    mock.poll_and_reconcile = AsyncMock(return_value=MagicMock(placed=[], filled=[], cancelled=[], failed=[]))
+    mock.process_order_requests = AsyncMock(
+        return_value=MagicMock(placed=[], filled=[], cancelled=[], failed=[])
+    )
+    mock.poll_and_reconcile = AsyncMock(
+        return_value=MagicMock(placed=[], filled=[], cancelled=[], failed=[])
+    )
     return mock
 
 
@@ -140,7 +150,9 @@ def _build_flow(
         cached_analyses=cached_analyses or {},
         circuit_breaker=service_overrides.get("circuit_breaker", MagicMock(is_tripped=False)),
         market_svc=service_overrides.get("market_svc", MagicMock()),
-        strategy_runner=service_overrides.get("strategy_runner", MagicMock(evaluate=MagicMock(return_value=[]))),
+        strategy_runner=service_overrides.get(
+            "strategy_runner", MagicMock(evaluate=MagicMock(return_value=[]))
+        ),
         risk_pipeline=service_overrides.get("risk_pipeline", MagicMock()),
         execution_service=service_overrides["execution_service"],
         db_service=service_overrides.get("db_service", MagicMock()),
@@ -156,6 +168,7 @@ def _build_flow(
 # ---------------------------------------------------------------------------
 # TestFlowRouting
 # ---------------------------------------------------------------------------
+
 
 class TestFlowRouting:
     @pytest.mark.asyncio
@@ -203,12 +216,14 @@ class TestFlowRouting:
 # TestMarketDataGate
 # ---------------------------------------------------------------------------
 
+
 class TestMarketDataGate:
     def test_gate_disables_strategy_when_no_analyses(self):
         flow = _build_flow(plan=_make_plan(run_strategy=True, open_orders_count=0))
         # Simulate: market ran but produced no data
         flow.state.market_analyses = {}
         from trading_crew.flows.trading_flow import _apply_market_data_gate
+
         _apply_market_data_gate(flow._plan, flow.state)
         assert flow._plan.run_strategy is False
         assert flow._plan.run_execution is False
@@ -217,6 +232,7 @@ class TestMarketDataGate:
         flow = _build_flow(plan=_make_plan(run_strategy=True, open_orders_count=2))
         flow.state.market_analyses = {}
         from trading_crew.flows.trading_flow import _apply_market_data_gate
+
         _apply_market_data_gate(flow._plan, flow.state)
         assert flow._plan.run_strategy is False
         assert flow._plan.run_execution is True  # open orders keep it alive
@@ -225,6 +241,7 @@ class TestMarketDataGate:
         flow = _build_flow(plan=_make_plan(run_strategy=True, run_execution=True))
         flow.state.market_analyses = {"BTC/USDT": _make_analysis()}
         from trading_crew.flows.trading_flow import _apply_market_data_gate
+
         _apply_market_data_gate(flow._plan, flow.state)
         assert flow._plan.run_strategy is True
         assert flow._plan.run_execution is True
@@ -233,6 +250,7 @@ class TestMarketDataGate:
 # ---------------------------------------------------------------------------
 # TestBudgetDegrade
 # ---------------------------------------------------------------------------
+
 
 class TestBudgetDegrade:
     @pytest.mark.asyncio
@@ -285,6 +303,7 @@ class TestBudgetDegrade:
 # TestPortfolioRollback
 # ---------------------------------------------------------------------------
 
+
 class TestPortfolioRollback:
     @pytest.mark.asyncio
     async def test_rollback_restores_portfolio_when_snapshot_non_none(self):
@@ -319,6 +338,7 @@ class TestPortfolioRollback:
 # TestEventHooks
 # ---------------------------------------------------------------------------
 
+
 class TestEventHooks:
     def test_on_order_filled_saves_pnl_snapshot(self):
         db = MagicMock()
@@ -342,7 +362,9 @@ class TestEventHooks:
         notif = MagicMock()
         cb = MagicMock(is_tripped=True, trip_reason="drawdown 30%")
         portfolio = _make_portfolio()
-        flow = _build_flow(portfolio=portfolio, db_service=db, notif_service=notif, circuit_breaker=cb)
+        flow = _build_flow(
+            portfolio=portfolio, db_service=db, notif_service=notif, circuit_breaker=cb
+        )
         flow._on_circuit_breaker_activated()
         db.save_portfolio.assert_called_once_with(portfolio)
         notif.notify_error.assert_called_once()
@@ -353,7 +375,9 @@ class TestEventHooks:
         exec_svc = _make_exec_svc_mock()
         notif = MagicMock()
         portfolio = _make_portfolio()
-        portfolio.positions["BTC/USDT"] = _make_position(current_price=45_000.0, stop_loss_price=46_000.0)
+        portfolio.positions["BTC/USDT"] = _make_position(
+            current_price=45_000.0, stop_loss_price=46_000.0
+        )
         flow = _build_flow(portfolio=portfolio, execution_service=exec_svc, notif_service=notif)
         pos = portfolio.positions["BTC/USDT"]
         await flow._on_stop_loss_triggered("BTC/USDT", pos, 45_000.0)
@@ -376,6 +400,7 @@ class TestEventHooks:
 # ---------------------------------------------------------------------------
 # TestStopLossMonitoring
 # ---------------------------------------------------------------------------
+
 
 class TestStopLossMonitoring:
     @pytest.mark.asyncio
@@ -471,6 +496,7 @@ class TestStopLossMonitoring:
 # TestUpdatePositionPrices
 # ---------------------------------------------------------------------------
 
+
 class TestUpdatePositionPrices:
     def test_updates_current_price_from_analysis(self):
         portfolio = _make_portfolio()
@@ -492,6 +518,7 @@ class TestUpdatePositionPrices:
 # ---------------------------------------------------------------------------
 # TestCyclePersistence
 # ---------------------------------------------------------------------------
+
 
 class TestCyclePersistence:
     @pytest.mark.asyncio

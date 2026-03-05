@@ -283,9 +283,7 @@ class ExecutionService:
             failed = FailedOrder(order_request=req, error_reason=f"validation: {reason}")
             result.failed.append(failed)
             self._db.save_failed_order(req, failed.error_reason)
-            self._notif.notify_error(
-                f"Order rejected ({req.symbol} {req.side.value}): {reason}"
-            )
+            self._notif.notify_error(f"Order rejected ({req.symbol} {req.side.value}): {reason}")
             return
 
         # 2. Normalize precision
@@ -469,7 +467,9 @@ class ExecutionService:
                 portfolio=portfolio,
                 requested_price=record.requested_price or 0.0,
             )
-            self._db.update_order_status_by_exchange_id(order_id, OrderStatus.PARTIALLY_FILLED.value)
+            self._db.update_order_status_by_exchange_id(
+                order_id, OrderStatus.PARTIALLY_FILLED.value
+            )
             logger.info(
                 "order.partially_filled: id=%s symbol=%s delta=%.6f total_filled=%.6f price=%.4f ts=%s",
                 order_id,
@@ -498,7 +498,10 @@ class ExecutionService:
             return
 
         # -- Stale fully-open order ---
-        if new_status in (OrderStatus.OPEN, OrderStatus.PENDING) and age_minutes >= self._stale_minutes:
+        if (
+            new_status in (OrderStatus.OPEN, OrderStatus.PENDING)
+            and age_minutes >= self._stale_minutes
+        ):
             await self._cancel_stale_order(
                 order_id=order_id,
                 symbol=symbol,
@@ -753,7 +756,11 @@ class ExecutionService:
                     total = pos.amount + delta_amount
                     new_entry = (pos.entry_price * pos.amount + fill_price * delta_amount) / total
                     portfolio.positions[symbol] = pos.model_copy(
-                        update={"amount": total, "entry_price": new_entry, "current_price": fill_price}
+                        update={
+                            "amount": total,
+                            "entry_price": new_entry,
+                            "current_price": fill_price,
+                        }
                     )
                 else:
                     portfolio.positions[symbol] = Position(
@@ -845,9 +852,7 @@ class ExecutionService:
 
     # -- Validation & Precision -----------------------------------------------
 
-    async def _validate_order(
-        self, req: OrderRequest, portfolio: Portfolio
-    ) -> tuple[bool, str]:
+    async def _validate_order(self, req: OrderRequest, portfolio: Portfolio) -> tuple[bool, str]:
         """Validate an order request against balance and exchange constraints.
 
         For MARKET BUY orders the current ask price is fetched from the exchange
