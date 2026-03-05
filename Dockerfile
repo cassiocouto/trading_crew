@@ -25,13 +25,13 @@ RUN pip install --no-cache-dir uv
 # Copy dependency manifests first for layer caching
 COPY pyproject.toml uv.lock* ./
 
-# Install production dependencies into an isolated venv
-RUN uv sync --no-dev --no-install-project
+# Install production dependencies (including dashboard extra for the API service)
+RUN uv sync --no-dev --extra dashboard --extra notifications --no-install-project
 
 # Copy source + readme (hatchling needs README.md for metadata) and install
 COPY README.md ./
 COPY src/ ./src/
-RUN uv sync --no-dev
+RUN uv sync --no-dev --extra dashboard --extra notifications
 
 # --------------------------------------------------------------------------
 # Stage 2 — runtime
