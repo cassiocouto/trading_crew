@@ -153,7 +153,7 @@ def _setup_logging(level: str, *, capture_stdout: bool = True) -> None:
     if sys.platform == "win32":
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
-                stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+                stream.reconfigure(encoding="utf-8", errors="replace")
 
     log_level = getattr(logging, level.upper(), logging.INFO)
     handlers: list[logging.Handler] = [
@@ -168,7 +168,7 @@ def _setup_logging(level: str, *, capture_stdout: bool = True) -> None:
     )
 
     if capture_stdout:
-        sys.stdout = _LoggingStream(level=logging.DEBUG)  # type: ignore[assignment]
+        sys.stdout = _LoggingStream(level=logging.DEBUG)
 
 
 def _make_shutdown_handler(

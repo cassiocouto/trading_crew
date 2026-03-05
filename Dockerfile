@@ -28,7 +28,8 @@ COPY pyproject.toml uv.lock* ./
 # Install production dependencies into an isolated venv
 RUN uv sync --no-dev --no-install-project
 
-# Copy source and install the project itself
+# Copy source + readme (hatchling needs README.md for metadata) and install
+COPY README.md ./
 COPY src/ ./src/
 RUN uv sync --no-dev
 
