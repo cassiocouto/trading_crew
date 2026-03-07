@@ -277,6 +277,12 @@ class CycleRecord(Base):
     realized_pnl: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     circuit_breaker_tripped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     errors_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+
+    uncertainty_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    uncertainty_factors_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    advisory_ran: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    advisory_adjustments_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )

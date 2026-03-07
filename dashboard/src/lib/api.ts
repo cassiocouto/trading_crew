@@ -67,6 +67,8 @@ export const api = {
     fee_rate: number;
     slippage_pct: number;
     strategy_names?: string[];
+    advisory_mode?: string;
+    simulation_mode?: boolean;
   }) => post<BacktestResultResponse>("/api/backtest/run", req),
 };
 

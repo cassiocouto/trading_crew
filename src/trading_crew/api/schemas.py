@@ -133,6 +133,9 @@ class CycleResponse(BaseModel):
     realized_pnl: float
     circuit_breaker_tripped: bool
     errors_json: str
+    uncertainty_score: float = 0.0
+    advisory_ran: bool = False
+    advisory_adjustments_json: str = "[]"
 
 
 # ---------------------------------------------------------------------------
@@ -143,9 +146,8 @@ class CycleResponse(BaseModel):
 class SystemStatusResponse(BaseModel):
     version: str
     trading_mode: str
-    market_pipeline_mode: str
-    strategy_pipeline_mode: str
-    execution_pipeline_mode: str
+    advisory_enabled: bool
+    advisory_activation_threshold: float
     total_cycles: int
     circuit_breaker_active: bool
     dashboard_ws_poll_interval_seconds: int
@@ -153,9 +155,9 @@ class SystemStatusResponse(BaseModel):
 
 class AgentStatusResponse(BaseModel):
     name: str
-    pipeline_mode: str
+    role: str
     last_run_at: datetime | None
-    tokens_estimated: int
+    advisory_activations_today: int = 0
     is_active: bool
 
 
@@ -183,7 +185,9 @@ class BacktestRunRequest(BaseModel):
     initial_balance: float = 10_000.0
     strategy_names: list[str] | None = None
     fee_rate: float = 0.001
-    slippage_pct: float = 0.0005
+    slippage_pct: float = 0.001
+    advisory_mode: str = "deterministic_only"
+    simulation_mode: bool = False
 
 
 class BacktestTradeResponse(BaseModel):
@@ -212,3 +216,7 @@ class BacktestResultResponse(BaseModel):
     total_fees: float
     final_balance: float
     trades: list[BacktestTradeResponse]
+    advisory_mode: str = "deterministic_only"
+    advisory_activations: int = 0
+    advisory_vetoes: int = 0
+    avg_uncertainty_score: float = 0.0

@@ -410,7 +410,37 @@ uv run python scripts/backtest_runner.py \
 
 ### Running backtests from the dashboard
 
-Go to the **Backtest** page in the dashboard, fill in the symbol, timeframe, and date range, and click Run. Results appear in the browser without touching the terminal.
+Go to the **Backtest** page in the dashboard, fill in the symbol, timeframe, and date range, and click Run. Results appear in the browser without touching the terminal. Enable the **Full Simulation** checkbox to run the real `TradingFlow` against the data instead of the fast legacy backtest.
+
+### Full simulation mode
+
+The legacy backtest is fast but simplified -- it reimplements strategy/risk logic in isolation and skips circuit-breaker halting, break-even sell guards, and the full CrewAI Flow graph. **Full simulation mode** runs the actual `TradingFlow` per candle against a simulated exchange and in-memory database, so results reflect how the live system actually behaves.
+
+```bash
+uv run python scripts/backtest_runner.py \
+  --simulation \
+  --candles-file data/BTCUSDT-1m.csv \
+  --resample 1h \
+  --from-date 2024-01-01 \
+  --to-date 2024-12-31
+```
+
+Key flags:
+
+| Flag | Description |
+|------|-------------|
+| `--simulation` | Use full `TradingFlow` simulation instead of legacy backtest |
+| `--candles-file PATH` | Load candles from a CSV file (Binance kline format) instead of the database |
+| `--resample TIMEFRAME` | Aggregate CSV candles to a larger timeframe (e.g. `1h`, `4h`, `1d`) |
+| `--max-bars N` | Safety valve: cap bars processed (default: 50,000) |
+
+The simulation supports the same `--compare`, `--output`, and `--advisory-mode` flags as the legacy backtest.
+
+**Known limitations:**
+- Single symbol per run (same as legacy backtest)
+- Sentiment data is not available in simulation (scores zero)
+- Orders fill immediately at candle close +/- slippage (no next-bar-open fills)
+- Slower than legacy backtest due to full Flow instantiation per bar; use `--resample` to reduce bar count
 
 ---
 
@@ -679,7 +709,7 @@ Backtest results should be treated with healthy scepticism. Common pitfalls:
 
 - **Overfitting** — a strategy tuned on historical data may not generalise
 - **Lookahead bias** — the backtester uses strict forward-only logic, but always verify this for any strategy you add
-- **Execution assumptions** — the backtester fills at next-candle open with configurable slippage; real fills differ
+- **Execution assumptions** — the legacy backtester fills at next-candle open with configurable slippage; real fills differ. The full simulation mode (see [Full simulation mode](#full-simulation-mode)) is more faithful since it runs the real `TradingFlow` with all guards
 - **Small sample sizes** — a 90-day backtest with 20 trades is statistically weak
 
 Use backtests to rule out obviously bad strategies, not to guarantee future profit.

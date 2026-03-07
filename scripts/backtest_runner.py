@@ -50,14 +50,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--from-date",
         dest="from_date",
-        required=True,
-        help="Start date (YYYY-MM-DD)",
+        default=None,
+        help="Start date (YYYY-MM-DD). Required unless --candles-file is used.",
     )
     parser.add_argument(
         "--to-date",
         dest="to_date",
-        required=True,
-        help="End date (YYYY-MM-DD)",
+        default=None,
+        help="End date (YYYY-MM-DD). Required unless --candles-file is used.",
     )
     parser.add_argument(
         "--output",
@@ -100,6 +100,38 @@ def _build_parser() -> argparse.ArgumentParser:
         default=10_000.0,
         help="Starting balance in quote currency.",
     )
+    parser.add_argument(
+        "--advisory-mode",
+        dest="advisory_mode",
+        choices=["deterministic_only", "with_advisory"],
+        default="deterministic_only",
+        help="Backtest mode: deterministic_only (default) or with_advisory.",
+    )
+
+    # -- Full simulation flags ------------------------------------------------
+    parser.add_argument(
+        "--simulation",
+        action="store_true",
+        help="Use SimulationRunner (full TradingFlow) instead of legacy BacktestService.",
+    )
+    parser.add_argument(
+        "--candles-file",
+        dest="candles_file",
+        default=None,
+        help="Load candles from a CSV file (Binance kline format) instead of DB.",
+    )
+    parser.add_argument(
+        "--resample",
+        default=None,
+        help="Resample CSV candles to a larger timeframe (e.g. 1h, 4h, 1d).",
+    )
+    parser.add_argument(
+        "--max-bars",
+        dest="max_bars",
+        type=int,
+        default=50_000,
+        help="Maximum number of bars to process (safety valve).",
+    )
     return parser
 
 
@@ -108,7 +140,7 @@ def main() -> int:
     # trading_crew module is resolved (avoids E402 and import-order issues).
     from trading_crew.config.settings import get_settings
     from trading_crew.db.session import get_engine
-    from trading_crew.models.backtest import BacktestConfig
+    from trading_crew.models.backtest import BacktestAdvisoryMode, BacktestConfig
     from trading_crew.models.risk import RiskParams
     from trading_crew.services.backtest_service import BacktestService
     from trading_crew.services.database_service import DatabaseService
@@ -121,10 +153,14 @@ def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
 
-    from_dt = _parse_date(args.from_date)
-    to_dt = _parse_date(args.to_date)
+    if not args.candles_file and (not args.from_date or not args.to_date):
+        print("ERROR: --from-date and --to-date are required unless --candles-file is used.")
+        return 1
 
-    if from_dt >= to_dt:
+    from_dt = _parse_date(args.from_date) if args.from_date else None
+    to_dt = _parse_date(args.to_date) if args.to_date else None
+
+    if from_dt and to_dt and from_dt >= to_dt:
         print(f"ERROR: --from-date must be before --to-date ({args.from_date} >= {args.to_date})")
         return 1
 
@@ -163,67 +199,164 @@ def main() -> int:
             print("Done (--data-only mode).")
             return 0
 
-    # ---- Load candles from DB -----------------------------------------------
-    candles = db_service.get_ohlcv_range(
-        symbol=args.symbol,
-        exchange=args.exchange,
-        timeframe=args.timeframe,
-        start=from_dt,
-        end=to_dt,
-    )
+    # ---- Load candles -------------------------------------------------------
+    if args.candles_file:
+        from trading_crew.services.candle_loader import load_candles_csv
 
-    if not candles:
-        print(
-            f"ERROR: No candles found for {args.symbol}/{args.exchange}/{args.timeframe} "
-            f"in [{args.from_date}, {args.to_date}]. Run with --fetch first."
+        candles = load_candles_csv(
+            path=args.candles_file,
+            symbol=args.symbol,
+            exchange=args.exchange,
+            timeframe=args.timeframe,
+            start=from_dt,
+            end=to_dt,
+            max_bars=args.max_bars,
+            resample=args.resample,
         )
-        return 1
+        if not candles:
+            print(
+                f"ERROR: No candles found in {args.candles_file} "
+                f"for [{args.from_date}, {args.to_date}]."
+            )
+            return 1
+        effective_timeframe = args.resample or args.timeframe
+        print(
+            f"Loaded {len(candles)} candles from CSV "
+            f"({candles[0].timestamp.date()} to {candles[-1].timestamp.date()}, "
+            f"timeframe={effective_timeframe})"
+        )
+    else:
+        effective_timeframe = args.timeframe
+        candles = db_service.get_ohlcv_range(
+            symbol=args.symbol,
+            exchange=args.exchange,
+            timeframe=args.timeframe,
+            start=from_dt,
+            end=to_dt,
+        )
+        if not candles:
+            print(
+                f"ERROR: No candles found for {args.symbol}/{args.exchange}/{args.timeframe} "
+                f"in [{args.from_date}, {args.to_date}]. Run with --fetch first."
+            )
+            return 1
+        if len(candles) > args.max_bars:
+            candles = candles[: args.max_bars]
+            print(f"Truncated to {args.max_bars} bars (--max-bars)")
 
-    print(
-        f"Loaded {len(candles)} candles from {candles[0].timestamp.date()} "
-        f"to {candles[-1].timestamp.date()}"
-    )
+        print(
+            f"Loaded {len(candles)} candles from {candles[0].timestamp.date()} "
+            f"to {candles[-1].timestamp.date()}"
+        )
 
     # ---- Build config -------------------------------------------------------
+    advisory_mode = BacktestAdvisoryMode(args.advisory_mode)
     config = BacktestConfig(
         initial_balance=args.initial_balance,
         fee_rate=args.fee_rate,
         slippage_pct=args.slippage,
+        advisory_mode=advisory_mode,
     )
     risk_params = RiskParams()
 
-    # ---- Build services -----------------------------------------------------
-    def _make_service(strategies: list) -> BacktestService:
-        runner = StrategyRunner(strategies)
-        return BacktestService(runner, risk_params, config)
+    advisory_crew = None
+    uncertainty_scorer = None
+    if advisory_mode == BacktestAdvisoryMode.WITH_ADVISORY:
+        from trading_crew.services.uncertainty_scorer import UncertaintyScorer
 
-    if args.compare:
-        services = [
-            _make_service([EMACrossoverStrategy()]),
-            _make_service([RSIRangeStrategy()]),
-            _make_service([BollingerBandsStrategy()]),
-        ]
-        print("\nRunning comparison: EMA Crossover vs RSI Range vs Bollinger Bands ...\n")
-        results = BacktestService.compare(
-            services,
-            symbol=args.symbol,
-            exchange=args.exchange,
-            candles=candles,
-            timeframe=args.timeframe,
-        )
-        for rank, result in enumerate(results, 1):
-            print(f"  #{rank}: {result.summary()}")
+        uncertainty_scorer = UncertaintyScorer()
+        print("Advisory mode: WITH_ADVISORY (uncertainty scoring enabled)")
+
+    # ---- Build services and run ----------------------------------------------
+    if args.simulation:
+        import asyncio as _aio
+
+        from trading_crew.services.simulation_runner import SimulationRunner
+
+        def _make_sim_runner(strats: list) -> SimulationRunner:
+            return SimulationRunner(
+                strategies=strats,
+                settings=settings,
+                config=config,
+                advisory_crew=advisory_crew,
+            )
+
+        if args.compare:
+            runners = [
+                _make_sim_runner([EMACrossoverStrategy()]),
+                _make_sim_runner([RSIRangeStrategy()]),
+                _make_sim_runner([BollingerBandsStrategy()]),
+            ]
+            print("\n[Simulation] Comparing: EMA Crossover vs RSI Range vs Bollinger Bands ...\n")
+            results = SimulationRunner.compare(
+                runners,
+                symbol=args.symbol,
+                exchange_id=args.exchange,
+                candles=candles,
+                timeframe=effective_timeframe,
+            )
+            for rank, result in enumerate(results, 1):
+                print(f"  #{rank}: {result.summary()}")
+        else:
+            strats = [EMACrossoverStrategy(), RSIRangeStrategy(), BollingerBandsStrategy()]
+            sim_runner = _make_sim_runner(strats)
+            print(f"[Simulation] Running with {len(strats)} strategies ...\n")
+            result = _aio.run(
+                sim_runner.run(args.symbol, args.exchange, candles, effective_timeframe)
+            )
+            results = [result]
+            print(f"  {result.summary()}")
     else:
-        strategies = [
-            EMACrossoverStrategy(),
-            RSIRangeStrategy(),
-            BollingerBandsStrategy(),
-        ]
-        runner = StrategyRunner(strategies, ensemble=False)
-        service = BacktestService(runner, risk_params, config)
-        print(f"Running backtest with {len(strategies)} strategies ...\n")
-        results = [service.run(args.symbol, args.exchange, candles, args.timeframe)]
-        print(f"  {results[0].summary()}")
+
+        def _make_service(strategies: list) -> BacktestService:
+            runner = StrategyRunner(strategies)
+            return BacktestService(
+                runner,
+                risk_params,
+                config,
+                advisory_crew=advisory_crew,
+                uncertainty_scorer=uncertainty_scorer,
+            )
+
+        if args.compare:
+            services = [
+                _make_service([EMACrossoverStrategy()]),
+                _make_service([RSIRangeStrategy()]),
+                _make_service([BollingerBandsStrategy()]),
+            ]
+            print("\nRunning comparison: EMA Crossover vs RSI Range vs Bollinger Bands ...\n")
+            results = BacktestService.compare(
+                services,
+                symbol=args.symbol,
+                exchange=args.exchange,
+                candles=candles,
+                timeframe=effective_timeframe,
+            )
+            for rank, result in enumerate(results, 1):
+                print(f"  #{rank}: {result.summary()}")
+        else:
+            strategies = [EMACrossoverStrategy(), RSIRangeStrategy(), BollingerBandsStrategy()]
+            runner = StrategyRunner(strategies, ensemble=False)
+            service = BacktestService(
+                runner,
+                risk_params,
+                config,
+                advisory_crew=advisory_crew,
+                uncertainty_scorer=uncertainty_scorer,
+            )
+            print(f"Running backtest with {len(strategies)} strategies ...\n")
+            results = [service.run(args.symbol, args.exchange, candles, effective_timeframe)]
+            print(f"  {results[0].summary()}")
+
+    if results and advisory_mode == BacktestAdvisoryMode.WITH_ADVISORY:
+        r = results[0]
+        avg_unc = (
+            sum(r.uncertainty_scores) / len(r.uncertainty_scores) if r.uncertainty_scores else 0.0
+        )
+        print(
+            f"  Advisory: {r.advisory_activations} activations, "
+            f"{r.advisory_vetoes} vetoes, avg uncertainty={avg_unc:.3f}"
+        )
 
     # ---- Export results -----------------------------------------------------
     if args.output and results:

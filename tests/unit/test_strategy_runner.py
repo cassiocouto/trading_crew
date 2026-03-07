@@ -98,9 +98,9 @@ class TestStrategyRunnerIndividual:
             min_confidence=0.0,
         )
         analyses = {"BTC/USDT": _make_analysis()}
-        signals = runner.evaluate(analyses)
-        assert len(signals) == 2
-        types = {s.signal_type for s in signals}
+        evaluation = runner.evaluate(analyses)
+        assert len(evaluation.signals) == 2
+        types = {s.signal_type for s in evaluation.signals}
         assert types == {SignalType.BUY, SignalType.SELL}
 
     def test_filters_below_min_confidence(self) -> None:
@@ -108,25 +108,25 @@ class TestStrategyRunnerIndividual:
             strategies=[_AlwaysBuyStrategy()],
             min_confidence=0.95,
         )
-        signals = runner.evaluate({"BTC/USDT": _make_analysis()})
-        assert len(signals) == 0
+        evaluation = runner.evaluate({"BTC/USDT": _make_analysis()})
+        assert len(evaluation.signals) == 0
 
     def test_none_signals_ignored(self) -> None:
         runner = StrategyRunner(
             strategies=[_NeverSignalStrategy()],
             min_confidence=0.0,
         )
-        signals = runner.evaluate({"BTC/USDT": _make_analysis()})
-        assert len(signals) == 0
+        evaluation = runner.evaluate({"BTC/USDT": _make_analysis()})
+        assert len(evaluation.signals) == 0
 
     def test_failing_strategy_does_not_crash_runner(self) -> None:
         runner = StrategyRunner(
             strategies=[_FailingStrategy(), _AlwaysBuyStrategy()],
             min_confidence=0.0,
         )
-        signals = runner.evaluate({"BTC/USDT": _make_analysis()})
-        assert len(signals) == 1
-        assert signals[0].strategy_name == "always_buy"
+        evaluation = runner.evaluate({"BTC/USDT": _make_analysis()})
+        assert len(evaluation.signals) == 1
+        assert evaluation.signals[0].strategy_name == "always_buy"
 
     def test_multiple_symbols(self) -> None:
         runner = StrategyRunner(
@@ -137,9 +137,9 @@ class TestStrategyRunnerIndividual:
             "BTC/USDT": _make_analysis(symbol="BTC/USDT"),
             "ETH/USDT": _make_analysis(symbol="ETH/USDT", price=3_000.0),
         }
-        signals = runner.evaluate(analyses)
-        assert len(signals) == 2
-        symbols = {s.symbol for s in signals}
+        evaluation = runner.evaluate(analyses)
+        assert len(evaluation.signals) == 2
+        symbols = {s.symbol for s in evaluation.signals}
         assert symbols == {"BTC/USDT", "ETH/USDT"}
 
 
@@ -151,10 +151,10 @@ class TestStrategyRunnerEnsemble:
             ensemble=True,
             ensemble_agreement_threshold=0.5,
         )
-        signals = runner.evaluate({"BTC/USDT": _make_analysis()})
-        assert len(signals) == 1
-        assert signals[0].signal_type == SignalType.BUY
-        assert signals[0].strategy_name == "ensemble"
+        evaluation = runner.evaluate({"BTC/USDT": _make_analysis()})
+        assert len(evaluation.signals) == 1
+        assert evaluation.signals[0].signal_type == SignalType.BUY
+        assert evaluation.signals[0].strategy_name == "ensemble"
 
     def test_consensus_sell_majority(self) -> None:
         runner = StrategyRunner(
@@ -163,9 +163,9 @@ class TestStrategyRunnerEnsemble:
             ensemble=True,
             ensemble_agreement_threshold=0.5,
         )
-        signals = runner.evaluate({"BTC/USDT": _make_analysis()})
-        assert len(signals) == 1
-        assert signals[0].signal_type == SignalType.SELL
+        evaluation = runner.evaluate({"BTC/USDT": _make_analysis()})
+        assert len(evaluation.signals) == 1
+        assert evaluation.signals[0].signal_type == SignalType.SELL
 
     def test_no_consensus_when_split(self) -> None:
         runner = StrategyRunner(
@@ -174,8 +174,8 @@ class TestStrategyRunnerEnsemble:
             ensemble=True,
             ensemble_agreement_threshold=0.67,
         )
-        signals = runner.evaluate({"BTC/USDT": _make_analysis()})
-        assert len(signals) == 0
+        evaluation = runner.evaluate({"BTC/USDT": _make_analysis()})
+        assert len(evaluation.signals) == 0
 
     def test_ensemble_below_min_confidence(self) -> None:
         class _LowConfidenceBuy(BaseStrategy):
@@ -199,8 +199,8 @@ class TestStrategyRunnerEnsemble:
             ensemble=True,
             ensemble_agreement_threshold=0.5,
         )
-        signals = runner.evaluate({"BTC/USDT": _make_analysis()})
-        assert len(signals) == 0
+        evaluation = runner.evaluate({"BTC/USDT": _make_analysis()})
+        assert len(evaluation.signals) == 0
 
     def test_ensemble_with_failing_strategy(self) -> None:
         runner = StrategyRunner(
@@ -209,8 +209,8 @@ class TestStrategyRunnerEnsemble:
             ensemble=True,
             ensemble_agreement_threshold=0.5,
         )
-        signals = runner.evaluate({"BTC/USDT": _make_analysis()})
-        assert len(signals) == 1
+        evaluation = runner.evaluate({"BTC/USDT": _make_analysis()})
+        assert len(evaluation.signals) == 1
 
 
 class TestStrategyRunnerRealStrategies:
@@ -226,9 +226,9 @@ class TestStrategyRunnerRealStrategies:
             strategies=[EMACrossoverStrategy()],
             min_confidence=0.0,
         )
-        signals = runner.evaluate({"BTC/USDT": analysis})
-        assert len(signals) == 1
-        assert signals[0].signal_type == SignalType.BUY
+        evaluation = runner.evaluate({"BTC/USDT": analysis})
+        assert len(evaluation.signals) == 1
+        assert evaluation.signals[0].signal_type == SignalType.BUY
 
     def test_bollinger_buy_signal(self) -> None:
         analysis = _make_analysis(
@@ -241,9 +241,9 @@ class TestStrategyRunnerRealStrategies:
             strategies=[BollingerBandsStrategy()],
             min_confidence=0.0,
         )
-        signals = runner.evaluate({"BTC/USDT": analysis})
-        assert len(signals) == 1
-        assert signals[0].signal_type == SignalType.BUY
+        evaluation = runner.evaluate({"BTC/USDT": analysis})
+        assert len(evaluation.signals) == 1
+        assert evaluation.signals[0].signal_type == SignalType.BUY
 
     def test_rsi_range_buy_signal(self) -> None:
         analysis = _make_analysis(
@@ -256,9 +256,9 @@ class TestStrategyRunnerRealStrategies:
             strategies=[RSIRangeStrategy()],
             min_confidence=0.0,
         )
-        signals = runner.evaluate({"BTC/USDT": analysis})
-        assert len(signals) == 1
-        assert signals[0].signal_type == SignalType.BUY
+        evaluation = runner.evaluate({"BTC/USDT": analysis})
+        assert len(evaluation.signals) == 1
+        assert evaluation.signals[0].signal_type == SignalType.BUY
 
 
 # -- CompositeStrategy tests --------------------------------------------------

@@ -25,7 +25,7 @@ cp .env.example .env
 ## Configuration
 
 Edit `.env` with your settings. The defaults are safe — paper trading mode
-with Binance sandbox and a cost-aware 15-minute loop:
+with Binance sandbox and a 15-minute deterministic loop:
 
 ```bash
 TRADING_MODE=paper
@@ -34,11 +34,16 @@ EXCHANGE_SANDBOX=true
 LOOP_INTERVAL_SECONDS=900
 ```
 
-You'll need an OpenAI API key (or local LLM) for the CrewAI agents:
+An LLM API key is **optional**. The deterministic pipeline runs without one.
+If you want the advisory crew to activate when uncertainty is high, set:
 
 ```bash
 OPENAI_API_KEY=your-key-here
+ADVISORY_ENABLED=true
 ```
+
+Without an API key, set `ADVISORY_ENABLED=false` and the system operates in
+fully deterministic mode with no LLM involvement.
 
 ## First Run
 
@@ -46,9 +51,11 @@ OPENAI_API_KEY=your-key-here
 make paper-trade
 ```
 
-This starts the trading loop in simulation mode. You'll see the agents
-fetching data, analyzing indicators, and generating signals — but no real
-orders are placed.
+This starts the trading loop in simulation mode. You'll see the deterministic
+pipeline fetching data, computing indicators, generating signals, and running
+risk checks — all without LLM calls. If the uncertainty score exceeds the
+threshold and advisory is enabled, the advisory crew will activate for that
+cycle. No real orders are placed.
 
 ## Running Tests
 
@@ -60,5 +67,5 @@ make type-check   # Type safety
 
 ## Next Steps
 
-- [Configuration](configuration.md) — Customize symbols, risk params, etc.
+- [Configuration](configuration.md) — Customize symbols, risk params, advisory threshold, etc.
 - [Writing a Strategy](writing-a-strategy.md) — Add your own trading logic

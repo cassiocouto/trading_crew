@@ -89,7 +89,10 @@ trading_crew/
 │   │   ├── notification_service.py    Telegram + log
 │   │   ├── technical_analysis.py  pandas-ta indicator computation
 │   │   ├── sentiment_service.py   Optional sentiment enrichment
-│   │   └── backtest_service.py    Historical simulation engine
+│   │   ├── backtest_service.py    Legacy fast backtesting engine
+│   │   ├── simulated_exchange.py  Mock exchange for full simulation backtest
+│   │   ├── simulation_runner.py   Full-fidelity TradingFlow simulation runner
+│   │   └── candle_loader.py       CSV candle loader (Binance kline format)
 │   ├── risk/
 │   │   ├── circuit_breaker.py     Portfolio drawdown circuit breaker
 │   │   ├── position_sizer.py      Kelly-inspired position sizing

@@ -1,112 +1,86 @@
 # =============================================================================
-# CrewAI Task Definitions
+# CrewAI Advisory Task Definitions
 # =============================================================================
-# Tasks are assigned to agents and executed in sequence within a crew.
-# Each task has a description, expected output, and the agent responsible.
+# Tasks for the advisory crew.  Each task receives a pre-formatted context
+# string with the deterministic pipeline's output and returns structured
+# adjustment directives.
+#
+# The {{context}} placeholder is replaced at runtime with the full pipeline
+# summary (market analyses, signals, risk results, portfolio state,
+# uncertainty factors).
 #
 # For full documentation: https://docs.crewai.com/concepts/tasks
 # =============================================================================
 
-# ---------------------------------------------------------------------------
-# Market Intelligence Tasks
-# ---------------------------------------------------------------------------
-
-fetch_market_data:
+review_trading_proposal:
   description: >
-    Fetch current ticker data and recent OHLCV candles for all configured
-    trading pairs ({symbols}) from the exchange ({exchange_id}).
-    Use the {timeframe} timeframe for candle data.
-    Store all fetched data in the database for historical tracking.
-  expected_output: >
-    A structured collection of Ticker and OHLCV data for each configured
-    symbol, including bid, ask, last price, volume, and recent candles.
-  agent: sentinel
+    You are reviewing the deterministic trading pipeline's proposal during
+    a period of elevated market uncertainty.
 
-analyze_market:
-  description: >
-    Using the market data fetched by the Sentinel, compute technical
-    indicators for each symbol: EMA(12), EMA(50), RSI(14), Bollinger
-    Bands(20, 2), MACD(12, 26, 9), and ATR(14). Identify the current
-    market regime (trending, ranging, volatile) for each pair.
+    === PIPELINE OUTPUT ===
+    {context}
+    === END PIPELINE OUTPUT ===
+
+    Analyze the proposal for:
+    1. Signals that conflict with the current market regime or sentiment
+    2. Unusually high confidence scores that may not reflect true conviction
+    3. Cross-asset correlations or macro risks the rule-based system misses
+
+    Return a JSON list of adjustment objects.  Each object must have:
+    - "action": one of "veto_signal", "adjust_confidence", "tighten_stop_loss",
+      "reduce_position_size", "sit_out"
+    - "symbol": the affected trading pair (null for sit_out)
+    - "reason": brief justification
+    - "params": dict of action-specific values (e.g. {{"new_confidence": 0.4}},
+      {{"stop_loss_pct": 0.02}})
+
+    If the proposal looks sound, return an empty list [].
   expected_output: >
-    A MarketAnalysis object per symbol containing all computed indicator
-    values, the identified market regime, and key support/resistance levels.
-  agent: analyst
+    A JSON list of advisory adjustment objects, or an empty list if no
+    changes are recommended.
+  agent: context_advisor
+
+assess_risk_adjustments:
+  description: >
+    You are the final risk reviewer.  The Context Advisor has already
+    proposed adjustments (or none).  Now evaluate the overall risk posture:
+
+    === PIPELINE OUTPUT ===
+    {context}
+    === END PIPELINE OUTPUT ===
+
+    Consider:
+    1. Drawdown proximity — if the portfolio is near max drawdown, recommend
+       tighter stops or a sit-out
+    2. Concentration risk — if multiple signals target correlated assets
+    3. Whether the Context Advisor's adjustments are sufficient
+
+    Return a single JSON object with:
+    - "adjustments": combined list of all recommended adjustments
+    - "summary": one-paragraph summary of your reasoning
+    - "uncertainty_score": the uncertainty score (pass through from context)
+  expected_output: >
+    A JSON object with keys "adjustments" (list), "summary" (string), and
+    "uncertainty_score" (float).
+  agent: risk_advisor
   context:
-    - fetch_market_data
+    - review_trading_proposal
 
-analyze_sentiment:
+interpret_sentiment:
   description: >
-    Gather sentiment data for the configured symbols. Check the Fear &
-    Greed Index, trending topics, and any available news sentiment.
-    Produce a sentiment score between -1 (extreme fear) and +1 (extreme greed).
+    Provide a brief qualitative interpretation of the current sentiment
+    environment to inform the advisory review:
+
+    === PIPELINE OUTPUT ===
+    {context}
+    === END PIPELINE OUTPUT ===
+
+    Focus on:
+    1. Whether the Fear & Greed reading reflects a genuine macro shift or noise
+    2. Any recent news events that the numeric sentiment score may not capture
+    3. Whether sentiment conditions support or contradict the proposed trades
+
+    Keep your response concise (2-3 sentences).
   expected_output: >
-    A sentiment score and qualitative assessment for each symbol, with
-    sources cited.
-  agent: sentiment
-
-# ---------------------------------------------------------------------------
-# Strategy Tasks
-# ---------------------------------------------------------------------------
-
-generate_signals:
-  description: >
-    Evaluate the market analysis and sentiment data to generate trade
-    signals. Run all configured strategies (EMA Crossover, Bollinger Bands,
-    RSI Range) against the analysis for each symbol. Produce a TradeSignal
-    for each symbol with a confidence score based on strategy agreement.
-    Only produce BUY or SELL signals when confidence exceeds the minimum
-    threshold ({min_confidence}).
-  expected_output: >
-    A list of TradeSignal objects, each containing: symbol, signal type
-    (buy/sell/hold), confidence score, suggested entry price, reason, and
-    the originating strategy name.
-  agent: strategist
-  context:
-    - analyze_market
-    - analyze_sentiment
-
-validate_risk:
-  description: >
-    For each actionable trade signal, validate against the portfolio's risk
-    parameters: check position size limits ({max_position_size_pct}%),
-    portfolio exposure ({max_portfolio_exposure_pct}%), and drawdown
-    ({max_drawdown_pct}%). Calculate the appropriate position size using
-    the risk-per-trade limit ({risk_per_trade_pct}%) and set a stop-loss
-    at {default_stop_loss_pct}% below entry. Reject any signal that
-    violates risk rules.
-  expected_output: >
-    A list of RiskCheckResult objects, one per signal. Each contains the
-    verdict (approved/reduced/rejected), adjusted amount, stop-loss price,
-    and reasons for any adjustments or rejections.
-  agent: risk_manager
-  context:
-    - generate_signals
-
-# ---------------------------------------------------------------------------
-# Execution Tasks
-# ---------------------------------------------------------------------------
-
-execute_orders:
-  description: >
-    For each risk-approved signal, place the corresponding order on the
-    exchange. In paper-trading mode, simulate the fill at the current
-    market price. In live mode, place a limit order via the exchange API.
-    Record all placed orders in the database.
-  expected_output: >
-    A list of Order objects with their exchange-assigned IDs and initial
-    status (open or simulated-filled for paper mode).
-  agent: executor
-  context:
-    - validate_risk
-
-monitor_orders:
-  description: >
-    Check the status of all open orders. For filled orders, update the
-    portfolio positions. For orders that have been open longer than
-    {stale_order_cancel_minutes} minutes without filling, cancel them.
-    Report any significant status changes.
-  expected_output: >
-    A summary of order status changes: newly filled orders, cancelled
-    stale orders, and the updated portfolio state.
-  agent: monitor
+    A brief narrative interpreting current market sentiment conditions.
+  agent: sentiment_advisor

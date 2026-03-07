@@ -5,6 +5,30 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { BacktestResultResponse } from "@/types";
 
+function BacktestError({ message }: { message: string }) {
+  let detail = message;
+  try {
+    const parsed = JSON.parse(message.replace(/^API error \d+:\s*/, ""));
+    if (parsed.detail) detail = parsed.detail;
+  } catch {
+    /* use raw message */
+  }
+
+  const needsData = /no ohlcv data|fetch data/i.test(detail);
+
+  return (
+    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-4">
+      <p className="text-sm font-medium text-red-800">{detail}</p>
+      {needsData && (
+        <p className="mt-2 text-xs text-red-600">
+          Run <code className="rounded bg-red-100 px-1.5 py-0.5 font-mono">make backtest-data</code> in
+          the project root to fetch historical candles first.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function BacktestPage() {
   const [form, setForm] = useState({
     symbol: "BTC/USDT",
@@ -15,6 +39,8 @@ export default function BacktestPage() {
     initial_balance: 10000,
     fee_rate: 0.001,
     slippage_pct: 0.0005,
+    advisory_mode: "deterministic_only",
+    simulation_mode: false,
   });
 
   const mutation = useMutation({
@@ -23,6 +49,8 @@ export default function BacktestPage() {
         ...form,
         start: new Date(form.start).toISOString(),
         end: new Date(form.end).toISOString(),
+        advisory_mode: form.advisory_mode,
+        simulation_mode: form.simulation_mode,
       }),
   });
 
@@ -53,7 +81,7 @@ export default function BacktestPage() {
               <input
                 type={type}
                 className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm"
-                value={form[key]}
+                value={form[key] as string | number}
                 step={type === "number" ? "any" : undefined}
                 onChange={(e) =>
                   setForm((f) => ({
@@ -64,6 +92,29 @@ export default function BacktestPage() {
               />
             </div>
           ))}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">Advisory Mode</label>
+            <select
+              className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm bg-white"
+              value={form.advisory_mode}
+              onChange={(e) => setForm((f) => ({ ...f, advisory_mode: e.target.value }))}
+            >
+              <option value="deterministic_only">Deterministic Only</option>
+              <option value="with_advisory">With Advisory</option>
+            </select>
+          </div>
+          <div className="flex items-end pb-1">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                checked={form.simulation_mode}
+                onChange={(e) => setForm((f) => ({ ...f, simulation_mode: e.target.checked }))}
+              />
+              <span className="font-medium text-gray-700">Full Simulation</span>
+            </label>
+            <span className="ml-1 text-[10px] text-gray-400" title="Run the real TradingFlow against historical data instead of the fast legacy backtest">(?)</span>
+          </div>
         </div>
 
         <button
@@ -74,15 +125,11 @@ export default function BacktestPage() {
           {mutation.isPending ? "Running…" : "Run Backtest"}
         </button>
 
-        {mutation.isError && (
-          <p className="mt-2 text-sm text-red-600">
-            Error: {(mutation.error as Error).message}
-          </p>
-        )}
+        {mutation.isError && <BacktestError message={(mutation.error as Error).message} />}
       </div>
 
       {/* Results */}
-      {result && (
+      {result && !mutation.isError && (
         <div className="space-y-4">
           {/* Summary metrics */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -95,6 +142,13 @@ export default function BacktestPage() {
               { label: "Total Trades", value: result.total_trades },
               { label: "Total Fees", value: `$${result.total_fees.toFixed(2)}` },
               { label: "Final Balance", value: `$${result.final_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}` },
+              ...(result.advisory_mode === "with_advisory"
+                ? [
+                    { label: "Advisory Activations", value: result.advisory_activations },
+                    { label: "Advisory Vetoes", value: result.advisory_vetoes },
+                    { label: "Avg Uncertainty", value: result.avg_uncertainty_score.toFixed(3) },
+                  ]
+                : []),
             ].map(({ label, value }) => (
               <div key={label} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
                 <p className="text-xs text-gray-500">{label}</p>

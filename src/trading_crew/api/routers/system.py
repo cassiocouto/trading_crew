@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 router = APIRouter(tags=["system"])
 
-_VERSION = "0.7.0"
+_VERSION = "1.0.0"
 
 
 @router.get("/status", response_model=SystemStatusResponse)
@@ -39,9 +39,8 @@ def get_status(db: DatabaseService = Depends(get_db)) -> SystemStatusResponse:
     return SystemStatusResponse(
         version=_VERSION,
         trading_mode=settings.trading_mode.value,
-        market_pipeline_mode=settings.market_pipeline_mode.value,
-        strategy_pipeline_mode=settings.strategy_pipeline_mode.value,
-        execution_pipeline_mode=settings.execution_pipeline_mode.value,
+        advisory_enabled=settings.advisory_enabled,
+        advisory_activation_threshold=settings.advisory_activation_threshold,
         total_cycles=total_cycles,
         circuit_breaker_active=cb_active,
         dashboard_ws_poll_interval_seconds=settings.dashboard_ws_poll_interval_seconds,
@@ -50,32 +49,7 @@ def get_status(db: DatabaseService = Depends(get_db)) -> SystemStatusResponse:
 
 @router.get("/agents", response_model=list[AgentStatusResponse])
 def get_agents(db: DatabaseService = Depends(get_db)) -> list[AgentStatusResponse]:
-    """Return per-agent pipeline mode and last activity (alias for /api/agents/)."""
-    settings = get_settings()
-    latest_cycle = db.get_latest_cycle()
-    last_run_at = latest_cycle.timestamp if latest_cycle else None
-    is_active = latest_cycle is not None
+    """Return advisory crew agent status (delegates to agents router)."""
+    from trading_crew.api.routers.agents import get_agents as _get_agents
 
-    return [
-        AgentStatusResponse(
-            name="market_intelligence",
-            pipeline_mode=settings.market_pipeline_mode.value,
-            last_run_at=last_run_at,
-            tokens_estimated=settings.market_crew_estimated_tokens,
-            is_active=is_active,
-        ),
-        AgentStatusResponse(
-            name="strategy",
-            pipeline_mode=settings.strategy_pipeline_mode.value,
-            last_run_at=last_run_at,
-            tokens_estimated=settings.strategy_crew_estimated_tokens,
-            is_active=is_active,
-        ),
-        AgentStatusResponse(
-            name="execution",
-            pipeline_mode=settings.execution_pipeline_mode.value,
-            last_run_at=last_run_at,
-            tokens_estimated=settings.execution_crew_estimated_tokens,
-            is_active=is_active,
-        ),
-    ]
+    return _get_agents(db)

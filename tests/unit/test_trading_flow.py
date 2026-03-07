@@ -1,11 +1,10 @@
-"""Unit tests for TradingFlow (Phase 5: Flow Orchestrator).
+"""Unit tests for TradingFlow (advisory architecture).
 
 Tests cover:
-  - All routing paths (route_after_market, route_after_strategy, route_after_execution)
-  - Budget degrade integration (STRATEGY_OFF, HARD_STOP)
+  - All routing paths (route_after_market, route_after_reserve, route_after_execution)
+  - Budget degrade integration (BUDGET_STOP)
   - Market data gate
   - Portfolio rollback on skip/failure
-  - Hard-stop deterministic poll
   - Event hooks (_on_order_filled, _on_circuit_breaker_activated, _on_stop_loss_triggered)
   - Stop-loss monitoring (_check_stop_losses)
   - Cycle persistence (save_cycle_summary gating)
@@ -23,6 +22,7 @@ from trading_crew.main import BudgetDegradeLevel, BudgetRuntimeState, RunPlan
 from trading_crew.models.market import MarketAnalysis
 from trading_crew.models.order import Order, OrderRequest, OrderSide, OrderStatus, OrderType
 from trading_crew.models.portfolio import PnLSnapshot, Portfolio, Position
+from trading_crew.services.uncertainty_scorer import UncertaintyScorer
 
 # ---------------------------------------------------------------------------
 # Helpers / stubs
@@ -31,24 +31,22 @@ from trading_crew.models.portfolio import PnLSnapshot, Portfolio, Position
 
 def _make_settings(**overrides):
     """Return a minimal Settings-like stub."""
-    from trading_crew.config.settings import (
-        ExecutionPipelineMode,
-        MarketPipelineMode,
-        Settings,
-        StrategyPipelineMode,
-    )
+    from trading_crew.config.settings import Settings
 
     s = MagicMock(spec=Settings)
-    s.market_pipeline_mode = MarketPipelineMode.DETERMINISTIC
-    s.strategy_pipeline_mode = StrategyPipelineMode.DETERMINISTIC
-    s.execution_pipeline_mode = ExecutionPipelineMode.DETERMINISTIC
-    s.non_llm_monitor_on_hard_stop = True
-    s.save_cycle_history = True
-    s.stop_loss_monitoring_enabled = True
+    s.crewai_verbose = False
     s.symbols = ["BTC/USDT"]
     s.default_timeframe = "1h"
     s.market_data_candle_limit = 120
-    s.crewai_verbose = False
+    s.market_regime_volatility_threshold = 0.03
+    s.market_regime_trend_threshold = 0.01
+    s.save_cycle_history = True
+    s.stop_loss_monitoring_enabled = True
+    s.advisory_enabled = True
+    s.advisory_activation_threshold = 0.6
+    s.advisory_estimated_tokens = 4000
+    s.execution_poll_interval_seconds = 900
+    s.risk = MagicMock()
     for k, v in overrides.items():
         setattr(s, k, v)
     return s
@@ -158,9 +156,8 @@ def _build_flow(
         execution_service=service_overrides["execution_service"],
         db_service=service_overrides.get("db_service", MagicMock()),
         notif_service=service_overrides.get("notif_service", MagicMock()),
-        market_crew=service_overrides.get("market_crew", MagicMock()),
-        strategy_crew=service_overrides.get("strategy_crew", MagicMock()),
-        execution_crew=service_overrides.get("execution_crew", MagicMock()),
+        uncertainty_scorer=service_overrides.get("uncertainty_scorer", UncertaintyScorer()),
+        advisory_crew=service_overrides.get("advisory_crew"),
         settings=settings or _make_settings(),
     )
     return flow
@@ -179,18 +176,16 @@ class TestFlowRouting:
         assert await flow.route_after_market() == "halt"
 
     @pytest.mark.asyncio
-    async def test_route_after_market_returns_skip_strategy_when_not_due(self):
-        flow = _build_flow(plan=_make_plan(run_strategy=False))
+    async def test_route_after_market_returns_skip_strategy_when_not_due_and_no_execution(self):
+        flow = _build_flow(plan=_make_plan(run_strategy=False, run_execution=False))
         assert await flow.route_after_market() == "skip_strategy"
 
     @pytest.mark.asyncio
-    async def test_route_after_market_returns_skip_strategy_on_budget_strategy_off(self):
-        # _apply_degrade_to_plan already set run_strategy=False before kickoff
-        flow = _build_flow(
-            plan=_make_plan(run_strategy=False),
-            budget=_make_budget(BudgetDegradeLevel.STRATEGY_OFF),
-        )
-        assert await flow.route_after_market() == "skip_strategy"
+    async def test_route_after_market_returns_execution_only_when_strategy_skipped_but_execution_due(
+        self,
+    ):
+        flow = _build_flow(plan=_make_plan(run_strategy=False, run_execution=True))
+        assert await flow.route_after_market() == "execution_only"
 
     @pytest.mark.asyncio
     async def test_route_after_market_returns_strategy_normally(self):
@@ -198,14 +193,14 @@ class TestFlowRouting:
         assert await flow.route_after_market() == "strategy"
 
     @pytest.mark.asyncio
-    async def test_route_after_strategy_returns_skip_execution_when_not_due(self):
+    async def test_route_after_reserve_returns_skip_execution_when_not_due(self):
         flow = _build_flow(plan=_make_plan(run_execution=False))
-        assert await flow.route_after_strategy() == "skip_execution"
+        assert await flow.route_after_reserve() == "skip_execution"
 
     @pytest.mark.asyncio
-    async def test_route_after_strategy_returns_execution_normally(self):
+    async def test_route_after_reserve_returns_execution_normally(self):
         flow = _build_flow(plan=_make_plan(run_execution=True))
-        assert await flow.route_after_strategy() == "execution"
+        assert await flow.route_after_reserve() == "execution"
 
     @pytest.mark.asyncio
     async def test_route_after_execution_always_returns_post_cycle(self):
@@ -255,38 +250,21 @@ class TestMarketDataGate:
 
 class TestBudgetDegrade:
     @pytest.mark.asyncio
-    async def test_hard_stop_poll_fires_when_execution_skipped(self):
+    async def test_budget_stop_no_poll_when_execution_skipped(self):
         exec_svc = _make_exec_svc_mock()
         portfolio = _make_portfolio()
         flow = _build_flow(
             plan=_make_plan(run_execution=False),
             portfolio=portfolio,
-            budget=_make_budget(BudgetDegradeLevel.HARD_STOP),
+            budget=_make_budget(BudgetDegradeLevel.BUDGET_STOP),
             execution_service=exec_svc,
-            settings=_make_settings(non_llm_monitor_on_hard_stop=True),
-        )
-        # Simulate skip_execution path: snapshot is non-None
-        flow._portfolio_snapshot = portfolio.model_copy(deep=True)
-        await flow.post_cycle_hooks()
-        exec_svc.poll_and_reconcile.assert_called_once_with(portfolio)
-
-    @pytest.mark.asyncio
-    async def test_hard_stop_poll_skipped_when_flag_off(self):
-        exec_svc = _make_exec_svc_mock()
-        portfolio = _make_portfolio()
-        flow = _build_flow(
-            plan=_make_plan(run_execution=False),
-            portfolio=portfolio,
-            budget=_make_budget(BudgetDegradeLevel.HARD_STOP),
-            execution_service=exec_svc,
-            settings=_make_settings(non_llm_monitor_on_hard_stop=False),
         )
         flow._portfolio_snapshot = portfolio.model_copy(deep=True)
         await flow.post_cycle_hooks()
         exec_svc.poll_and_reconcile.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_normal_degrade_skips_hard_stop_poll(self):
+    async def test_normal_degrade_no_poll_when_execution_skipped(self):
         exec_svc = _make_exec_svc_mock()
         portfolio = _make_portfolio()
         flow = _build_flow(

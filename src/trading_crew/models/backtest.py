@@ -11,9 +11,17 @@ import csv
 import json
 import math
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class BacktestAdvisoryMode(StrEnum):
+    """Whether the backtest uses pure deterministic signals or also runs advisory."""
+
+    DETERMINISTIC_ONLY = "deterministic_only"
+    WITH_ADVISORY = "with_advisory"
 
 
 class BacktestConfig(BaseModel):
@@ -25,6 +33,7 @@ class BacktestConfig(BaseModel):
         slippage_pct: Simulated fill slippage as a fraction applied to open price.
         min_candles_for_analysis: Minimum candles needed before the first signal.
         candle_window_size: Rolling window of candles passed to TechnicalAnalyzer.
+        advisory_mode: Run in deterministic-only or deterministic + advisory mode.
     """
 
     initial_balance: float = Field(default=10_000.0, gt=0)
@@ -32,6 +41,11 @@ class BacktestConfig(BaseModel):
     slippage_pct: float = Field(default=0.001, ge=0, le=0.05)
     min_candles_for_analysis: int = Field(default=50, ge=20)
     candle_window_size: int = Field(default=500, ge=50)
+    advisory_mode: BacktestAdvisoryMode = BacktestAdvisoryMode.DETERMINISTIC_ONLY
+    simulation_mode: bool = Field(
+        default=False,
+        description="True = full TradingFlow simulation, False = legacy fast backtest",
+    )
 
 
 class BacktestTrade(BaseModel, frozen=True):
@@ -113,6 +127,9 @@ class BacktestResult(BaseModel):
     total_fees: float
     trades: list[BacktestTrade]
     equity_curve: list[EquityPoint]
+    advisory_activations: int = 0
+    advisory_vetoes: int = 0
+    uncertainty_scores: list[float] = Field(default_factory=list)
 
     def summary(self) -> str:
         """Return a one-line human-readable summary of the backtest result."""

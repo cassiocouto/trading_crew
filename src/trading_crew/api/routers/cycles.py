@@ -57,4 +57,7 @@ def _cycle_to_response(record: CycleRecord) -> CycleResponse:
         realized_pnl=record.realized_pnl,
         circuit_breaker_tripped=record.circuit_breaker_tripped,
         errors_json=record.errors_json,
+        uncertainty_score=record.uncertainty_score,
+        advisory_ran=record.advisory_ran,
+        advisory_adjustments_json=record.advisory_adjustments_json,
     )

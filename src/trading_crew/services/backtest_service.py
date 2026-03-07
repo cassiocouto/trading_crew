@@ -13,11 +13,14 @@ Design guarantees:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
-from typing import TYPE_CHECKING
+import threading
+from typing import TYPE_CHECKING, Any
 
 from trading_crew.models.backtest import (
+    BacktestAdvisoryMode,
     BacktestConfig,
     BacktestResult,
     BacktestTrade,
@@ -28,14 +31,43 @@ from trading_crew.models.signal import SignalType
 from trading_crew.services.technical_analyzer import TechnicalAnalyzer
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
     from datetime import datetime
 
+    from trading_crew.crews.advisory_crew import AdvisoryCrew
     from trading_crew.models.market import OHLCV, MarketAnalysis
     from trading_crew.models.risk import RiskParams
     from trading_crew.models.signal import TradeSignal
     from trading_crew.services.strategy_runner import StrategyRunner
+    from trading_crew.services.uncertainty_scorer import UncertaintyScorer
 
 logger = logging.getLogger(__name__)
+
+
+def _run_async(coro: Coroutine[Any, Any, Any]) -> Any:
+    """Run an async coroutine from sync code, even inside an existing loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # Already inside a running loop — run in a fresh thread with its own loop.
+    result: Any = None
+    exc: BaseException | None = None
+
+    def _target() -> None:
+        nonlocal result, exc
+        try:
+            result = asyncio.run(coro)
+        except BaseException as e:
+            exc = e
+
+    t = threading.Thread(target=_target, daemon=True)
+    t.start()
+    t.join()
+    if exc is not None:
+        raise exc
+    return result
+
 
 # Seconds per timeframe string — used to assign candle timestamps when missing.
 _TIMEFRAME_SECONDS: dict[str, int] = {
@@ -91,6 +123,8 @@ class BacktestService:
         config: BacktestConfig | None = None,
         stop_loss_method: str = "fixed",
         atr_stop_multiplier: float = 2.0,
+        advisory_crew: AdvisoryCrew | None = None,
+        uncertainty_scorer: UncertaintyScorer | None = None,
     ) -> None:
         self._runner = strategy_runner
         self._risk_params = risk_params
@@ -98,6 +132,8 @@ class BacktestService:
         self._stop_loss_method = stop_loss_method
         self._atr_stop_multiplier = atr_stop_multiplier
         self._analyzer = TechnicalAnalyzer()
+        self._advisory_crew = advisory_crew
+        self._uncertainty_scorer = uncertainty_scorer
 
     # ------------------------------------------------------------------
     # Public API
@@ -139,8 +175,17 @@ class BacktestService:
         completed_trades: list[BacktestTrade] = []
         equity_curve: list[EquityPoint] = []
         peak_equity = cfg.initial_balance
-        # Maps symbol -> fill bar index so entry_bar is accurate on every BacktestTrade.
         entry_bars: dict[str, int] = {}
+
+        use_advisory = (
+            cfg.advisory_mode == BacktestAdvisoryMode.WITH_ADVISORY
+            and self._uncertainty_scorer is not None
+            and self._advisory_crew is not None
+        )
+        advisory_activations = 0
+        advisory_vetoes = 0
+        uncertainty_scores: list[float] = []
+        previous_regimes: dict[str, str] = {}
 
         for i, candle in enumerate(candles):
             # ---- Fill any pending orders at this candle's open ----
@@ -175,7 +220,58 @@ class BacktestService:
                 pos.current_price = candle.close
 
             # ---- Strategy signals ----
-            signals = self._runner.evaluate({symbol: analysis})
+            evaluation = self._runner.evaluate({symbol: analysis})
+            signals = evaluation.signals
+
+            # ---- Advisory layer (when enabled) ----
+            if use_advisory:
+                assert self._uncertainty_scorer is not None
+                assert self._advisory_crew is not None
+
+                unc_result = self._uncertainty_scorer.score(
+                    analyses={symbol: analysis},
+                    votes=evaluation.votes,
+                    portfolio=portfolio,
+                    risk_params=self._risk_params,
+                    sentiment=None,
+                    previous_regimes=previous_regimes,
+                )
+                uncertainty_scores.append(unc_result.score)
+                previous_regimes[symbol] = analysis.metadata.market_regime or "unknown"
+
+                if unc_result.recommend_advisory and signals:
+                    advisory_activations += 1
+                    context_text = (
+                        f"Bar {i} | Symbol: {symbol} | "
+                        f"Regime: {analysis.metadata.market_regime} | "
+                        f"Signals: {len(signals)} | "
+                        f"Uncertainty: {unc_result.score:.3f} | "
+                        f"Portfolio balance: {portfolio.total_balance:.2f}"
+                    )
+                    try:
+                        advisory_result = _run_async(
+                            self._advisory_crew.run(
+                                context_text,
+                                uncertainty_score=unc_result.score,
+                            )
+                        )
+                    except Exception:
+                        logger.debug("Advisory crew failed at bar %d, using original signals", i)
+                        advisory_result = None
+
+                    if advisory_result is not None:
+                        from trading_crew.models.advisory import (
+                            AdjustmentAction,
+                            apply_advisory_directives,
+                        )
+
+                        vetoes_this_bar = sum(
+                            1
+                            for a in advisory_result.adjustments
+                            if a.action in (AdjustmentAction.VETO_SIGNAL, AdjustmentAction.SIT_OUT)
+                        )
+                        advisory_vetoes += vetoes_this_bar
+                        signals = apply_advisory_directives(signals, advisory_result)
 
             # ---- Risk pipeline + queue orders ----
             for signal in signals:
@@ -228,6 +324,9 @@ class BacktestService:
             total_fees=metrics["total_fees"],
             trades=completed_trades,
             equity_curve=equity_curve,
+            advisory_activations=advisory_activations,
+            advisory_vetoes=advisory_vetoes,
+            uncertainty_scores=uncertainty_scores,
         )
 
     @staticmethod

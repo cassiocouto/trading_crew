@@ -36,7 +36,7 @@ def run_backtest(
     The handler is synchronous so FastAPI offloads it to a threadpool, keeping
     the event loop unblocked for the DB query and CPU-bound simulation.
     """
-    from trading_crew.models.backtest import BacktestConfig
+    from trading_crew.models.backtest import BacktestAdvisoryMode, BacktestConfig
     from trading_crew.models.risk import RiskParams
     from trading_crew.services.backtest_service import BacktestService
     from trading_crew.services.strategy_runner import StrategyRunner
@@ -65,14 +65,15 @@ def run_backtest(
             ),
         )
 
+    advisory_mode = BacktestAdvisoryMode(req.advisory_mode)
     config = BacktestConfig(
         initial_balance=req.initial_balance,
         fee_rate=req.fee_rate,
         slippage_pct=req.slippage_pct,
+        advisory_mode=advisory_mode,
     )
     risk_params = RiskParams()
 
-    # Build strategies from optional names list; default to EMA + RSI
     _all = {
         "ema_crossover": EMACrossoverStrategy,
         "rsi_range": RSIRangeStrategy,
@@ -85,15 +86,49 @@ def run_backtest(
     else:
         strategies = [EMACrossoverStrategy()]
 
-    runner = StrategyRunner(strategies)
-    service = BacktestService(runner, risk_params, config)
+    advisory_crew = None
+    uncertainty_scorer = None
+    if advisory_mode == BacktestAdvisoryMode.WITH_ADVISORY:
+        from trading_crew.services.uncertainty_scorer import UncertaintyScorer
 
-    result = service.run(
-        symbol=req.symbol,
-        exchange=req.exchange,
-        candles=candles,
-        timeframe=req.timeframe,
-    )
+        uncertainty_scorer = UncertaintyScorer()
+
+    if req.simulation_mode:
+        import asyncio as _asyncio
+
+        from trading_crew.config.settings import get_settings
+        from trading_crew.services.simulation_runner import SimulationRunner
+
+        settings = get_settings()
+        sim_runner = SimulationRunner(
+            strategies=strategies,
+            settings=settings,
+            config=config,
+            advisory_crew=advisory_crew,
+        )
+        result = _asyncio.run(
+            sim_runner.run(
+                symbol=req.symbol,
+                exchange_id=req.exchange,
+                candles=candles,
+                timeframe=req.timeframe,
+            )
+        )
+    else:
+        runner = StrategyRunner(strategies)
+        service = BacktestService(
+            runner,
+            risk_params,
+            config,
+            advisory_crew=advisory_crew,
+            uncertainty_scorer=uncertainty_scorer,
+        )
+        result = service.run(
+            symbol=req.symbol,
+            exchange=req.exchange,
+            candles=candles,
+            timeframe=req.timeframe,
+        )
 
     if result is None:
         raise HTTPException(status_code=422, detail="Backtest produced no result")
@@ -116,6 +151,11 @@ def run_backtest(
 
     sharpe = result.sharpe_ratio if not math.isnan(result.sharpe_ratio) else 0.0
     strategy_name = result.strategy_names[0] if result.strategy_names else "combined"
+    avg_unc = (
+        sum(result.uncertainty_scores) / len(result.uncertainty_scores)
+        if result.uncertainty_scores
+        else 0.0
+    )
 
     return BacktestResultResponse(
         strategy_name=strategy_name,
@@ -130,4 +170,8 @@ def run_backtest(
         total_fees=result.total_fees,
         final_balance=result.final_balance,
         trades=trades,
+        advisory_mode=advisory_mode.value,
+        advisory_activations=result.advisory_activations,
+        advisory_vetoes=result.advisory_vetoes,
+        avg_uncertainty_score=avg_unc,
     )

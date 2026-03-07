@@ -1,13 +1,120 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDown, ChevronRight, Shield } from "lucide-react";
 import { EquityCurve } from "@/components/EquityCurve";
 import { StrategyStatsTable } from "@/components/StrategyStatsTable";
 import { useCycles, usePnlHistory, useStrategyStats } from "@/hooks/useApi";
+import type { CycleResponse } from "@/types";
+
+function uncertaintyColor(score: number): string {
+  if (score < 0.3) return "text-green-600";
+  if (score <= 0.6) return "text-yellow-600";
+  return "text-red-600";
+}
+
+function uncertaintyBg(score: number): string {
+  if (score < 0.3) return "bg-green-100 text-green-800";
+  if (score <= 0.6) return "bg-yellow-100 text-yellow-800";
+  return "bg-red-100 text-red-800";
+}
+
+function formatAdvisoryAdjustments(json: string): Record<string, unknown> | null {
+  if (!json || json === "{}" || json === "[]" || json === "null") return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function CycleRow({ c, isExpanded, onToggle }: { c: CycleResponse; isExpanded: boolean; onToggle: () => void }) {
+  const adjustments = c.advisory_ran ? formatAdvisoryAdjustments(c.advisory_adjustments_json) : null;
+
+  return (
+    <>
+      <tr
+        className={`border-b last:border-0 ${c.advisory_ran ? "cursor-pointer hover:bg-gray-50" : ""}`}
+        onClick={c.advisory_ran ? onToggle : undefined}
+      >
+        <td className="py-2 pr-4 font-medium">
+          {c.advisory_ran && (
+            <span className="mr-1 inline-flex text-gray-400">
+              {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            </span>
+          )}
+          {c.cycle_number}
+        </td>
+        <td className="py-2 pr-4 text-xs text-gray-500">
+          {new Date(c.timestamp).toLocaleString()}
+        </td>
+        <td className="py-2 pr-4">{c.num_signals}</td>
+        <td className="py-2 pr-4">{c.num_orders_filled}</td>
+        <td className="py-2 pr-4">${c.portfolio_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+        <td
+          className={`py-2 pr-4 font-medium ${
+            c.realized_pnl >= 0 ? "text-green-600" : "text-red-600"
+          }`}
+        >
+          {c.realized_pnl >= 0 ? "+" : ""}${c.realized_pnl.toFixed(2)}
+        </td>
+        <td className="py-2 pr-4">
+          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${uncertaintyBg(c.uncertainty_score)}`}>
+            {c.uncertainty_score.toFixed(2)}
+          </span>
+        </td>
+        <td className="py-2 pr-4">
+          {c.advisory_ran ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">
+              <Shield className="h-3 w-3" />
+              Advisory
+            </span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
+        </td>
+        <td className="py-2">
+          {c.circuit_breaker_tripped ? (
+            <span className="text-red-500 font-bold">⚡</span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
+        </td>
+      </tr>
+      {isExpanded && c.advisory_ran && (
+        <tr className="border-b last:border-0">
+          <td colSpan={9} className="bg-purple-50/50 px-6 py-3">
+            <div className="text-xs">
+              <span className="font-semibold text-purple-800">Advisory Adjustments</span>
+              {adjustments ? (
+                <pre className="mt-1.5 overflow-x-auto rounded-md bg-white p-3 text-xs text-gray-700 border border-purple-100">
+                  {JSON.stringify(adjustments, null, 2)}
+                </pre>
+              ) : (
+                <p className="mt-1 text-gray-500 italic">No adjustment data recorded.</p>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
 
 export default function HistoryPage() {
   const pnl = usePnlHistory(200);
   const cycles = useCycles(100);
   const stratStats = useStrategyStats();
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  const toggleExpanded = (id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -41,34 +148,19 @@ export default function HistoryPage() {
                   <th className="py-2 pr-4">Fills</th>
                   <th className="py-2 pr-4">Balance</th>
                   <th className="py-2 pr-4">PnL</th>
+                  <th className="py-2 pr-4">Uncertainty</th>
+                  <th className="py-2 pr-4">Advisory</th>
                   <th className="py-2">CB</th>
                 </tr>
               </thead>
               <tbody>
                 {(cycles.data ?? []).map((c) => (
-                  <tr key={c.id} className="border-b last:border-0">
-                    <td className="py-2 pr-4 font-medium">{c.cycle_number}</td>
-                    <td className="py-2 pr-4 text-xs text-gray-500">
-                      {new Date(c.timestamp).toLocaleString()}
-                    </td>
-                    <td className="py-2 pr-4">{c.num_signals}</td>
-                    <td className="py-2 pr-4">{c.num_orders_filled}</td>
-                    <td className="py-2 pr-4">${c.portfolio_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                    <td
-                      className={`py-2 pr-4 font-medium ${
-                        c.realized_pnl >= 0 ? "text-green-600" : "text-red-600"
-                      }`}
-                    >
-                      {c.realized_pnl >= 0 ? "+" : ""}${c.realized_pnl.toFixed(2)}
-                    </td>
-                    <td className="py-2">
-                      {c.circuit_breaker_tripped ? (
-                        <span className="text-red-500 font-bold">⚡</span>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
-                    </td>
-                  </tr>
+                  <CycleRow
+                    key={c.id}
+                    c={c}
+                    isExpanded={expandedIds.has(c.id)}
+                    onToggle={() => toggleExpanded(c.id)}
+                  />
                 ))}
               </tbody>
             </table>

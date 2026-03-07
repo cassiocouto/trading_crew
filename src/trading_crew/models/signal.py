@@ -1,12 +1,17 @@
 """Trade signal models.
 
-Signals are the output of the Strategy Crew — a recommendation to buy, sell,
-or hold. They carry a confidence score and must pass through the Risk Manager
-before becoming an order.
+Signals are the output of the deterministic strategy pipeline — a recommendation
+to buy, sell, or hold. They carry a confidence score and must pass through the
+Risk Pipeline before becoming an order.
+
+StrategyEvaluation bundles the filtered actionable signals with the full
+per-strategy vote breakdown, which the UncertaintyScorer uses to measure
+strategy disagreement.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -69,3 +74,30 @@ class TradeSignal(BaseModel, frozen=True):
     def is_actionable(self) -> bool:
         """Whether this signal suggests placing an order (not HOLD)."""
         return self.signal_type != SignalType.HOLD
+
+
+@dataclass(frozen=True)
+class StrategyVote:
+    """One strategy's raw output for a single symbol.
+
+    Preserved even when the signal is filtered (None, HOLD, below confidence).
+    The UncertaintyScorer uses the full vote record to measure disagreement.
+    """
+
+    strategy_name: str
+    symbol: str
+    signal: TradeSignal | None
+    filtered_reason: str | None = None
+
+
+class StrategyEvaluation(BaseModel):
+    """Result of running all strategies: actionable signals plus raw votes.
+
+    ``signals`` contains only those that passed actionability and confidence
+    filters (same semantics as the old ``list[TradeSignal]`` return value).
+    ``votes`` preserves every strategy's output per symbol — including None,
+    HOLD, and below-threshold results — keyed by symbol.
+    """
+
+    signals: list[TradeSignal] = Field(default_factory=list)
+    votes: dict[str, list[StrategyVote]] = Field(default_factory=dict)

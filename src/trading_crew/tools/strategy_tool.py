@@ -63,7 +63,7 @@ class RunStrategiesTool(BaseTool):
         if not analyses:
             return json.dumps({"error": "No valid analyses could be parsed"})
 
-        signals = self.strategy_runner.evaluate(analyses)
+        evaluation = self.strategy_runner.evaluate(analyses)
 
         return json.dumps(
             [
@@ -77,7 +77,7 @@ class RunStrategiesTool(BaseTool):
                     "entry_price": s.entry_price,
                     "reason": s.reason,
                 }
-                for s in signals
+                for s in evaluation.signals
             ],
             indent=2,
         )

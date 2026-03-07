@@ -573,6 +573,10 @@ class DatabaseService:
                 if state.timestamp.tzinfo is None
                 else state.timestamp.replace(tzinfo=None)
             )
+            unc_score = state.uncertainty_score
+            unc_factors_json = _json.dumps(state.uncertainty_factors)
+            adv_ran = state.advisory_ran
+            adv_adjustments_json = _json.dumps(state.advisory_adjustments)
             if existing:
                 existing.timestamp = timestamp
                 existing.num_signals = len(state.signals)
@@ -584,6 +588,10 @@ class DatabaseService:
                 existing.realized_pnl = portfolio.realized_pnl
                 existing.circuit_breaker_tripped = state.circuit_breaker_tripped
                 existing.errors_json = _json.dumps(state.errors)
+                existing.uncertainty_score = unc_score
+                existing.uncertainty_factors_json = unc_factors_json
+                existing.advisory_ran = adv_ran
+                existing.advisory_adjustments_json = adv_adjustments_json
             else:
                 record = CycleRecord(
                     cycle_number=state.cycle_number,
@@ -597,6 +605,10 @@ class DatabaseService:
                     realized_pnl=portfolio.realized_pnl,
                     circuit_breaker_tripped=state.circuit_breaker_tripped,
                     errors_json=_json.dumps(state.errors),
+                    uncertainty_score=unc_score,
+                    uncertainty_factors_json=unc_factors_json,
+                    advisory_ran=adv_ran,
+                    advisory_adjustments_json=adv_adjustments_json,
                 )
                 session.add(record)
         logger.debug(

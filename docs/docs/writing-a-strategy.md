@@ -22,7 +22,8 @@ class MyStrategy(BaseStrategy):
 
 ## Available Indicators
 
-The `MarketAnalysis` object contains pre-computed indicators:
+The `MarketAnalysis` object contains pre-computed indicators from the
+`TechnicalAnalyzer`:
 
 | Indicator | Key | Description |
 |-----------|-----|-------------|
@@ -32,10 +33,31 @@ The `MarketAnalysis` object contains pre-computed indicators:
 | BB Upper | `bb_upper` | Upper Bollinger Band |
 | BB Middle | `bb_middle` | Middle Bollinger Band (SMA 20) |
 | BB Lower | `bb_lower` | Lower Bollinger Band |
+| MACD Line | `macd_line` | MACD line (12-EMA minus 26-EMA) |
+| MACD Signal | `macd_signal` | 9-period EMA of MACD line |
+| MACD Histogram | `macd_histogram` | MACD line minus signal line |
+| ATR | `atr_14` | 14-period Average True Range |
 | Range High | `range_high` | Recent high |
 | Range Low | `range_low` | Recent low |
 
 Access them with `analysis.get_indicator("ema_fast")`.
+
+## Interaction with the Uncertainty Scorer
+
+Your strategy's signals feed into the `UncertaintyScorer`. When multiple
+strategies disagree on direction for a symbol, the **strategy disagreement**
+factor increases the uncertainty score, which can trigger the advisory crew.
+
+This means:
+
+- Strategies that produce clear, confident signals in calm markets help keep
+  uncertainty low (no advisory activation, no LLM cost).
+- Strategies that are highly sensitive or noisy may increase advisory
+  activations. Consider using appropriate confidence values and filtering out
+  weak signals by returning `None`.
+
+The full vote breakdown (each strategy's signal per symbol) is captured in
+the `StrategyEvaluation` and passed to the uncertainty scorer.
 
 ## Example: MACD Strategy
 
@@ -49,7 +71,7 @@ class MACDStrategy(BaseStrategy):
     name = "macd"
 
     def generate_signal(self, analysis: MarketAnalysis) -> TradeSignal | None:
-        macd = analysis.get_indicator("macd")
+        macd = analysis.get_indicator("macd_line")
         macd_signal = analysis.get_indicator("macd_signal")
 
         if macd is None or macd_signal is None:
@@ -82,7 +104,7 @@ def test_macd_buy_signal():
         exchange="binance",
         timestamp=datetime.utcnow(),
         current_price=60000,
-        indicators={"macd": 150, "macd_signal": 100},
+        indicators={"macd_line": 150, "macd_signal": 100},
     )
     strategy = MACDStrategy()
     signal = strategy.generate_signal(analysis)

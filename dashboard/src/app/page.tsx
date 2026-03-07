@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Shield } from "lucide-react";
 import { AgentCard } from "@/components/AgentCard";
 import { MetricCard } from "@/components/MetricCard";
 import { PositionsTable } from "@/components/PositionsTable";
@@ -70,10 +70,22 @@ export default function OverviewPage() {
         <PositionsTable positions={p?.positions ?? {}} />
       </div>
 
-      {/* Agent status grid */}
+      {/* Advisory & Agent status */}
       <div>
-        <h2 className="mb-3 font-semibold">Agent Status</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <h2 className="mb-3 font-semibold">Advisory Crew</h2>
+        {systemStatus.data && (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm text-sm">
+            <Shield className="h-5 w-5 text-purple-600 shrink-0" />
+            <span className="font-medium">
+              Advisory {systemStatus.data.advisory_enabled ? "enabled" : "disabled"}
+            </span>
+            <span className="text-gray-400">|</span>
+            <span className="text-gray-600">
+              Threshold: {systemStatus.data.advisory_activation_threshold.toFixed(2)}
+            </span>
+          </div>
+        )}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(agents.data ?? []).map((a) => (
             <AgentCard key={a.name} agent={a} />
           ))}

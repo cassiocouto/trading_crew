@@ -1,9 +1,13 @@
-"""Deterministic strategy execution engine for Phase 3.
+"""Deterministic strategy execution engine.
 
 Runs registered strategies against MarketAnalysis data and aggregates
 signals. Supports two modes:
   - Individual: every strategy produces independent signals
   - Ensemble: strategies vote per symbol, producing one consensus signal
+
+Returns a ``StrategyEvaluation`` that bundles the filtered actionable signals
+with the full per-strategy vote breakdown.  The vote data feeds the
+``UncertaintyScorer`` to detect strategy disagreement.
 """
 
 from __future__ import annotations
@@ -11,7 +15,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from trading_crew.models.signal import SignalStrength, SignalType, TradeSignal
+from trading_crew.models.signal import (
+    SignalStrength,
+    SignalType,
+    StrategyEvaluation,
+    StrategyVote,
+    TradeSignal,
+)
 
 if TYPE_CHECKING:
     from trading_crew.models.market import MarketAnalysis
@@ -49,29 +59,40 @@ class StrategyRunner:
     def strategy_names(self) -> list[str]:
         return [s.name for s in self._strategies]
 
-    def evaluate(self, analyses: dict[str, MarketAnalysis]) -> list[TradeSignal]:
+    def evaluate(self, analyses: dict[str, MarketAnalysis]) -> StrategyEvaluation:
         """Run all strategies against the provided analyses.
 
         Returns:
-            List of actionable signals that meet the minimum confidence threshold.
+            StrategyEvaluation with actionable signals and full vote breakdown.
         """
         if self._ensemble:
             return self._evaluate_ensemble(analyses)
         return self._evaluate_individual(analyses)
 
-    def _evaluate_individual(self, analyses: dict[str, MarketAnalysis]) -> list[TradeSignal]:
+    def _evaluate_individual(self, analyses: dict[str, MarketAnalysis]) -> StrategyEvaluation:
         signals: list[TradeSignal] = []
+        votes: dict[str, list[StrategyVote]] = {}
         for symbol, analysis in analyses.items():
+            symbol_votes: list[StrategyVote] = []
             for strategy in self._strategies:
                 try:
                     signal = strategy.generate_signal(analysis)
                 except Exception:
                     logger.exception("Strategy %s failed for %s", strategy.name, symbol)
+                    symbol_votes.append(
+                        StrategyVote(strategy.name, symbol, None, filtered_reason="error")
+                    )
                     continue
 
                 if signal is None:
+                    symbol_votes.append(
+                        StrategyVote(strategy.name, symbol, None, filtered_reason="none")
+                    )
                     continue
                 if not signal.is_actionable:
+                    symbol_votes.append(
+                        StrategyVote(strategy.name, symbol, signal, filtered_reason="hold")
+                    )
                     continue
                 if signal.confidence < self._min_confidence:
                     logger.debug(
@@ -81,7 +102,13 @@ class StrategyRunner:
                         signal.confidence,
                         self._min_confidence,
                     )
+                    symbol_votes.append(
+                        StrategyVote(
+                            strategy.name, symbol, signal, filtered_reason="below_min_confidence"
+                        )
+                    )
                     continue
+                symbol_votes.append(StrategyVote(strategy.name, symbol, signal))
                 signals.append(signal)
                 logger.info(
                     "Signal: %s %s %s (confidence=%.2f, strategy=%s)",
@@ -91,17 +118,21 @@ class StrategyRunner:
                     signal.confidence,
                     signal.strategy_name,
                 )
-        return signals
+            votes[symbol] = symbol_votes
+        return StrategyEvaluation(signals=signals, votes=votes)
 
-    def _evaluate_ensemble(self, analyses: dict[str, MarketAnalysis]) -> list[TradeSignal]:
+    def _evaluate_ensemble(self, analyses: dict[str, MarketAnalysis]) -> StrategyEvaluation:
         signals: list[TradeSignal] = []
+        votes: dict[str, list[StrategyVote]] = {}
         for _symbol, analysis in analyses.items():
-            consensus = self._vote(analysis)
+            symbol_votes: list[StrategyVote] = []
+            consensus = self._vote(analysis, symbol_votes)
+            votes[analysis.symbol] = symbol_votes
             if consensus is not None:
                 signals.append(consensus)
-        return signals
+        return StrategyEvaluation(signals=signals, votes=votes)
 
-    def _vote(self, analysis: MarketAnalysis) -> TradeSignal | None:
+    def _vote(self, analysis: MarketAnalysis, out_votes: list[StrategyVote]) -> TradeSignal | None:
         """Aggregate strategy signals for a single symbol via weighted voting."""
         raw_signals: list[TradeSignal] = []
         for strategy in self._strategies:
@@ -113,11 +144,29 @@ class StrategyRunner:
                     strategy.name,
                     analysis.symbol,
                 )
+                out_votes.append(
+                    StrategyVote(strategy.name, analysis.symbol, None, filtered_reason="error")
+                )
                 continue
             if signal is not None and signal.is_actionable:
                 raw_signals.append(signal)
+                out_votes.append(StrategyVote(strategy.name, analysis.symbol, signal))
+                logger.debug(
+                    "Ensemble vote: %s → %s %s (confidence=%.2f)",
+                    strategy.name,
+                    signal.signal_type.value,
+                    analysis.symbol,
+                    signal.confidence,
+                )
+            else:
+                reason = "none" if signal is None else "hold"
+                out_votes.append(
+                    StrategyVote(strategy.name, analysis.symbol, signal, filtered_reason=reason)
+                )
+                logger.debug("Ensemble vote: %s → no signal for %s", strategy.name, analysis.symbol)
 
         if not raw_signals:
+            logger.debug("Ensemble: all strategies returned no signal for %s", analysis.symbol)
             return None
 
         buy_signals = [s for s in raw_signals if s.signal_type == SignalType.BUY]

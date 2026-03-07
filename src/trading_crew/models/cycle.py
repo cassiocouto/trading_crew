@@ -1,14 +1,11 @@
-"""Trading cycle state — typed contract for inter-crew data handoff.
+"""Trading cycle state — typed contract for pipeline data handoff.
 
-Defines the structured shape of data that flows between crews:
-  MarketCrew   -> CycleState.market_analyses     (Phase 2: deterministic)
-  StrategyCrew -> CycleState.signals,
-                  CycleState.risk_results,
-                  CycleState.order_requests       (Phase 3: deterministic)
-  ExecutionCrew -> CycleState.orders,
-                   CycleState.filled_orders,
-                   CycleState.cancelled_orders,
-                   CycleState.failed_orders       (Phase 4: deterministic)
+Defines the structured shape of data that flows through a single cycle:
+  Market intelligence  -> CycleState.market_analyses
+  Strategy + Risk      -> CycleState.signals, risk_results, order_requests
+  Uncertainty scoring  -> CycleState.uncertainty_score, uncertainty_factors
+  Advisory (optional)  -> CycleState.advisory_ran, advisory_adjustments
+  Execution            -> CycleState.orders, filled/cancelled/failed_orders
 """
 
 from __future__ import annotations
@@ -60,6 +57,11 @@ class CycleState(BaseModel):
     failed_orders: list[dict[str, Any]] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     circuit_breaker_tripped: bool = False
+
+    uncertainty_score: float = 0.0
+    uncertainty_factors: list[str] = Field(default_factory=list)
+    advisory_ran: bool = False
+    advisory_adjustments: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
     def has_actionable_signals(self) -> bool:

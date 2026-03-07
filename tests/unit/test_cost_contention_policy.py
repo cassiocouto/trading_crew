@@ -1,4 +1,4 @@
-"""Unit tests for cost-contention scheduling, budget policy, and balance sync helpers."""
+"""Unit tests for budget policy, scheduling, and balance sync helpers."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from trading_crew.main import (
     BudgetRuntimeState,
     RunPlan,
     _accumulate_estimated_tokens,
-    _apply_degrade_to_plan,
     _apply_market_data_gate,
     _build_run_plan,
     _is_due,
@@ -36,70 +35,107 @@ class _DbCountStub:
 
 def _settings(**overrides: object) -> Settings:
     base: dict[str, object] = {
-        "cost_contention_enabled": True,
-        "market_crew_interval_seconds": 900,
-        "strategy_crew_interval_seconds": 900,
-        "execution_crew_interval_seconds": 900,
+        "execution_poll_interval_seconds": 900,
+        "advisory_enabled": True,
+        "advisory_activation_threshold": 0.6,
+        "advisory_estimated_tokens": 4_000,
         "daily_token_budget_enabled": True,
         "daily_token_budget_tokens": 600_000,
-        "token_budget_degrade_mode": TokenBudgetDegradeMode.STRATEGY_ONLY,
-        "market_crew_estimated_tokens": 1_500,
-        "strategy_crew_estimated_tokens": 6_000,
-        "execution_crew_estimated_tokens": 1_000,
+        "token_budget_degrade_mode": TokenBudgetDegradeMode.BUDGET_STOP,
     }
     base.update(overrides)
     return Settings(**base)
 
 
+# ---------------------------------------------------------------------------
+# _is_due
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.unit
-def test_is_due() -> None:
+def test_is_due_first_run() -> None:
     assert _is_due(100.0, None, 30) is True
+
+
+@pytest.mark.unit
+def test_is_due_not_elapsed() -> None:
     assert _is_due(100.0, 80.0, 30) is False
+
+
+@pytest.mark.unit
+def test_is_due_elapsed() -> None:
     assert _is_due(100.0, 70.0, 30) is True
 
 
+# ---------------------------------------------------------------------------
+# _build_run_plan — market and strategy always run
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.unit
-def test_build_run_plan_disabled_contention_runs_everything() -> None:
-    settings = _settings(cost_contention_enabled=False)
+def test_build_run_plan_market_and_strategy_always_run() -> None:
+    settings = _settings()
     plan = _build_run_plan(
         settings,
-        _DbCountStub(3),
+        _DbCountStub(0),
         now=1000.0,
-        last_market_run=900.0,
-        last_strategy_run=900.0,
-        last_execution_run=900.0,
+        last_execution_poll=999.0,
     )
     assert plan.run_market is True
     assert plan.run_strategy is True
-    assert plan.run_execution is True
-    assert plan.open_orders_count is None
 
 
 @pytest.mark.unit
-def test_build_run_plan_strategy_not_coupled_to_market_schedule() -> None:
+def test_build_run_plan_execution_runs_when_poll_due() -> None:
+    settings = _settings(execution_poll_interval_seconds=60)
+    plan = _build_run_plan(
+        settings,
+        _DbCountStub(2),
+        now=1000.0,
+        last_execution_poll=900.0,
+    )
+    assert plan.run_execution is True
+    assert plan.open_orders_count == 2
+
+
+@pytest.mark.unit
+def test_build_run_plan_execution_skipped_when_poll_not_due() -> None:
+    settings = _settings(execution_poll_interval_seconds=900)
+    plan = _build_run_plan(
+        settings,
+        _DbCountStub(5),
+        now=1000.0,
+        last_execution_poll=999.0,
+    )
+    assert plan.run_execution is False
+
+
+@pytest.mark.unit
+def test_build_run_plan_execution_runs_on_first_cycle() -> None:
     settings = _settings()
     plan = _build_run_plan(
         settings,
         _DbCountStub(1),
         now=1000.0,
-        last_market_run=500.0,  # market not due
-        last_strategy_run=0.0,  # strategy due
-        last_execution_run=0.0,  # execution due
+        last_execution_poll=None,
     )
-    assert plan.run_market is False
-    assert plan.run_strategy is True
     assert plan.run_execution is True
     assert plan.open_orders_count == 1
 
 
+# ---------------------------------------------------------------------------
+# _refresh_budget_day
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.unit
-def test_refresh_budget_day_resets_state_on_rollover() -> None:
+def test_refresh_budget_day_resets_on_new_utc_day() -> None:
     settings = _settings()
     state = BudgetRuntimeState(
         token_budget_day=date(2000, 1, 1),
-        estimated_tokens_used_today=12345,
+        estimated_tokens_used_today=50_000,
         budget_breach_notified=True,
-        degrade_level=BudgetDegradeLevel.HARD_STOP,
+        degrade_level=BudgetDegradeLevel.BUDGET_STOP,
     )
     _refresh_budget_day(settings, state)
     assert state.token_budget_day == datetime.now(UTC).date()
@@ -109,49 +145,132 @@ def test_refresh_budget_day_resets_state_on_rollover() -> None:
 
 
 @pytest.mark.unit
-def test_update_degrade_level_strategy_then_hard_stop() -> None:
+def test_refresh_budget_day_noop_when_same_day() -> None:
+    settings = _settings()
+    today = datetime.now(UTC).date()
+    state = BudgetRuntimeState(
+        token_budget_day=today,
+        estimated_tokens_used_today=42_000,
+        budget_breach_notified=True,
+        degrade_level=BudgetDegradeLevel.BUDGET_STOP,
+    )
+    _refresh_budget_day(settings, state)
+    assert state.estimated_tokens_used_today == 42_000
+    assert state.budget_breach_notified is True
+    assert state.degrade_level == BudgetDegradeLevel.BUDGET_STOP
+
+
+@pytest.mark.unit
+def test_refresh_budget_day_noop_when_budget_disabled() -> None:
+    settings = _settings(daily_token_budget_enabled=False)
+    state = BudgetRuntimeState(
+        token_budget_day=date(2000, 1, 1),
+        estimated_tokens_used_today=99_999,
+    )
+    _refresh_budget_day(settings, state)
+    assert state.estimated_tokens_used_today == 99_999
+
+
+# ---------------------------------------------------------------------------
+# _update_degrade_level
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_update_degrade_level_moves_to_budget_stop() -> None:
     notifier = NotificationService(channels=[])
     state = BudgetRuntimeState(
         token_budget_day=datetime.now(UTC).date(),
-        estimated_tokens_used_today=595_000,
+        estimated_tokens_used_today=600_000,
     )
-    strategy_only = _settings(token_budget_degrade_mode=TokenBudgetDegradeMode.STRATEGY_ONLY)
-    _update_degrade_level(strategy_only, state, notifier)
-    assert state.degrade_level == BudgetDegradeLevel.STRATEGY_OFF
+    settings = _settings(token_budget_degrade_mode=TokenBudgetDegradeMode.BUDGET_STOP)
+    _update_degrade_level(settings, state, notifier)
+    assert state.degrade_level == BudgetDegradeLevel.BUDGET_STOP
     assert state.budget_breach_notified is True
 
-    hard_stop = _settings(token_budget_degrade_mode=TokenBudgetDegradeMode.HARD_STOP)
-    state.estimated_tokens_used_today = 600_000
-    _update_degrade_level(hard_stop, state, notifier)
-    assert state.degrade_level == BudgetDegradeLevel.HARD_STOP
-
 
 @pytest.mark.unit
-def test_apply_degrade_to_plan() -> None:
-    settings = _settings()
-    plan = RunPlan(run_market=True, run_strategy=True, run_execution=True, open_orders_count=2)
-    state = BudgetRuntimeState(token_budget_day=datetime.now(UTC).date())
-    state.degrade_level = BudgetDegradeLevel.STRATEGY_OFF
-    out = _apply_degrade_to_plan(settings, state, plan)
-    assert out.run_market is True
-    assert out.run_strategy is False
-    assert out.run_execution is True
-
-    state.degrade_level = BudgetDegradeLevel.HARD_STOP
-    out = _apply_degrade_to_plan(settings, state, plan)
-    assert out.run_market is False
-    assert out.run_strategy is False
-    assert out.run_execution is False
-
-
-@pytest.mark.unit
-def test_accumulate_estimated_tokens() -> None:
-    settings = _settings()
-    state = BudgetRuntimeState(token_budget_day=datetime.now(UTC).date())
-    _accumulate_estimated_tokens(
-        settings, state, ran_market=True, ran_strategy=False, ran_execution=True
+def test_update_degrade_level_stays_normal_below_budget() -> None:
+    notifier = NotificationService(channels=[])
+    state = BudgetRuntimeState(
+        token_budget_day=datetime.now(UTC).date(),
+        estimated_tokens_used_today=100_000,
     )
-    assert state.estimated_tokens_used_today == 2_500
+    settings = _settings(token_budget_degrade_mode=TokenBudgetDegradeMode.BUDGET_STOP)
+    _update_degrade_level(settings, state, notifier)
+    assert state.degrade_level == BudgetDegradeLevel.NORMAL
+    assert state.budget_breach_notified is False
+
+
+@pytest.mark.unit
+def test_update_degrade_level_noop_when_mode_normal() -> None:
+    notifier = NotificationService(channels=[])
+    state = BudgetRuntimeState(
+        token_budget_day=datetime.now(UTC).date(),
+        estimated_tokens_used_today=999_999,
+    )
+    settings = _settings(token_budget_degrade_mode=TokenBudgetDegradeMode.NORMAL)
+    _update_degrade_level(settings, state, notifier)
+    assert state.degrade_level == BudgetDegradeLevel.NORMAL
+
+
+@pytest.mark.unit
+def test_update_degrade_level_noop_when_budget_disabled() -> None:
+    notifier = NotificationService(channels=[])
+    state = BudgetRuntimeState(
+        token_budget_day=datetime.now(UTC).date(),
+        estimated_tokens_used_today=999_999,
+    )
+    settings = _settings(
+        daily_token_budget_enabled=False,
+        token_budget_degrade_mode=TokenBudgetDegradeMode.BUDGET_STOP,
+    )
+    _update_degrade_level(settings, state, notifier)
+    assert state.degrade_level == BudgetDegradeLevel.NORMAL
+
+
+# ---------------------------------------------------------------------------
+# _accumulate_estimated_tokens
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_accumulate_estimated_tokens_when_advisory_ran() -> None:
+    settings = _settings(advisory_estimated_tokens=4_000)
+    state = BudgetRuntimeState(token_budget_day=datetime.now(UTC).date())
+    _accumulate_estimated_tokens(settings, state, advisory_ran=True)
+    assert state.estimated_tokens_used_today == 4_000
+
+
+@pytest.mark.unit
+def test_accumulate_estimated_tokens_skipped_when_advisory_did_not_run() -> None:
+    settings = _settings(advisory_estimated_tokens=4_000)
+    state = BudgetRuntimeState(token_budget_day=datetime.now(UTC).date())
+    _accumulate_estimated_tokens(settings, state, advisory_ran=False)
+    assert state.estimated_tokens_used_today == 0
+
+
+@pytest.mark.unit
+def test_accumulate_estimated_tokens_noop_when_budget_disabled() -> None:
+    settings = _settings(daily_token_budget_enabled=False, advisory_estimated_tokens=4_000)
+    state = BudgetRuntimeState(token_budget_day=datetime.now(UTC).date())
+    _accumulate_estimated_tokens(settings, state, advisory_ran=True)
+    assert state.estimated_tokens_used_today == 0
+
+
+@pytest.mark.unit
+def test_accumulate_estimated_tokens_increments_cumulatively() -> None:
+    settings = _settings(advisory_estimated_tokens=4_000)
+    state = BudgetRuntimeState(token_budget_day=datetime.now(UTC).date())
+    _accumulate_estimated_tokens(settings, state, advisory_ran=True)
+    _accumulate_estimated_tokens(settings, state, advisory_ran=True)
+    _accumulate_estimated_tokens(settings, state, advisory_ran=False)
+    assert state.estimated_tokens_used_today == 8_000
+
+
+# ---------------------------------------------------------------------------
+# _apply_market_data_gate
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit

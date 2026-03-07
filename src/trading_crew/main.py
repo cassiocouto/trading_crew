@@ -1,18 +1,17 @@
 """Trading Crew — main entry point.
 
-Initializes all services and runs the trading loop.
+Initializes all services and runs the deterministic-first trading loop with
+condition-triggered advisory crew activation.
 
-CURRENT STATUS (v0.10.0 — Position Guard System):
   Each cycle is orchestrated by ``TradingFlow`` — a CrewAI Flow that wires
-  the market, strategy, and execution phases with typed routing, event hooks
-  (on_order_filled, on_circuit_breaker_activated, on_stop_loss_triggered),
-  stop-loss monitoring, and per-cycle DB persistence.
+  market intelligence, strategy evaluation, uncertainty scoring, optional
+  advisory review, order reservation, and execution phases.
 
-  main() retains only the inter-cycle concerns that span the full run:
-    - budget refresh and token accumulation
-    - interval scheduling (RunPlan computation)
+  main() retains only the inter-cycle concerns:
+    - budget refresh and advisory token accumulation
+    - execution poll interval scheduling
     - sleep between cycles
-    - cross-cycle market-analysis cache (for stop-loss fallback)
+    - cross-cycle state (market-analysis cache, previous regimes)
     - graceful shutdown and final portfolio persistence
 
 Usage:
@@ -41,22 +40,16 @@ if TYPE_CHECKING:
     from trading_crew.models.cycle import CycleState
     from trading_crew.models.market import MarketAnalysis
 
-from trading_crew.agents.analyst import create_analyst_agent
-from trading_crew.agents.executor import create_executor_agent
-from trading_crew.agents.monitor import create_monitor_agent
-from trading_crew.agents.risk_manager import create_risk_manager_agent
-from trading_crew.agents.sentiment import create_sentiment_agent
-from trading_crew.agents.sentinel import create_sentinel_agent
-from trading_crew.agents.strategist import create_strategist_agent
+from trading_crew.agents.risk_manager import create_risk_advisor
+from trading_crew.agents.sentiment import create_sentiment_advisor
+from trading_crew.agents.strategist import create_context_advisor
 from trading_crew.config.settings import (
     SellGuardMode,
     Settings,
     TokenBudgetDegradeMode,
     get_settings,
 )
-from trading_crew.crews.execution_crew import ExecutionCrew
-from trading_crew.crews.market_crew import MarketCrew
-from trading_crew.crews.strategy_crew import StrategyCrew
+from trading_crew.crews.advisory_crew import AdvisoryCrew
 from trading_crew.db.session import get_engine, init_db
 from trading_crew.flows.trading_flow import TradingFlow
 from trading_crew.models.order import OrderRequest, OrderSide
@@ -71,6 +64,7 @@ from trading_crew.services.notification_service import NotificationService
 from trading_crew.services.risk_pipeline import RiskPipeline
 from trading_crew.services.sentiment_service import SentimentService
 from trading_crew.services.strategy_runner import StrategyRunner
+from trading_crew.services.uncertainty_scorer import UncertaintyScorer, UncertaintyWeights
 from trading_crew.strategies.bollinger import BollingerBandsStrategy
 from trading_crew.strategies.ema_crossover import EMACrossoverStrategy
 from trading_crew.strategies.rsi_range import RSIRangeStrategy
@@ -79,11 +73,10 @@ logger = logging.getLogger("trading_crew")
 
 
 class BudgetDegradeLevel(StrEnum):
-    """Runtime degrade stage for daily token budget controls."""
+    """Runtime degrade stage.  NORMAL allows advisory; BUDGET_STOP disables it."""
 
     NORMAL = "normal"
-    STRATEGY_OFF = "strategy_off"
-    HARD_STOP = "hard_stop"
+    BUDGET_STOP = "budget_stop"
 
 
 @dataclass
@@ -276,23 +269,21 @@ def _build_run_plan(
     settings: Settings,
     db_service: DatabaseService,
     now: float,
-    last_market_run: float | None,
-    last_strategy_run: float | None,
-    last_execution_run: float | None,
+    last_execution_poll: float | None,
 ) -> RunPlan:
-    """Compute base crew run plan from interval scheduling rules."""
+    """Compute the run plan for this cycle.
+
+    Market and strategy always run.  Execution runs when there are new order
+    requests OR when the execution poll interval is due and open orders exist.
+    """
     plan = RunPlan()
+    plan.run_market = True
+    plan.run_strategy = True
 
-    if not settings.cost_contention_enabled:
-        return plan
-
-    plan.run_market = _is_due(now, last_market_run, settings.market_crew_interval_seconds)
-    plan.run_strategy = _is_due(now, last_strategy_run, settings.strategy_crew_interval_seconds)
-
-    execution_due = _is_due(now, last_execution_run, settings.execution_crew_interval_seconds)
+    execution_due = _is_due(now, last_execution_poll, settings.execution_poll_interval_seconds)
     if execution_due:
         plan.open_orders_count = db_service.count_open_orders()
-        plan.run_execution = plan.run_strategy or plan.open_orders_count > 0
+        plan.run_execution = True
     else:
         plan.run_execution = False
 
@@ -316,89 +307,39 @@ def _update_degrade_level(
     budget_state: BudgetRuntimeState,
     notification_service: NotificationService,
 ) -> None:
-    """Advance degrade level according to configured token-budget policy."""
+    """Advance degrade level when advisory token budget is exhausted."""
     if not settings.daily_token_budget_enabled:
         return
 
     if (
-        settings.token_budget_degrade_mode
-        in (TokenBudgetDegradeMode.STRATEGY_ONLY, TokenBudgetDegradeMode.HARD_STOP)
+        settings.token_budget_degrade_mode == TokenBudgetDegradeMode.BUDGET_STOP
         and budget_state.degrade_level == BudgetDegradeLevel.NORMAL
-        and (
-            budget_state.estimated_tokens_used_today + settings.strategy_crew_estimated_tokens
-            > settings.daily_token_budget_tokens
-        )
-    ):
-        budget_state.degrade_level = BudgetDegradeLevel.STRATEGY_OFF
-        logger.warning(
-            "Daily token budget guard activated: used=%d, budget=%d. "
-            "Strategy crew disabled for the rest of the UTC day.",
-            budget_state.estimated_tokens_used_today,
-            settings.daily_token_budget_tokens,
-        )
-        _notify_budget_breach_once(
-            budget_state,
-            notification_service,
-            "Daily token budget reached. Strategy crew disabled until UTC day reset.",
-        )
-
-    if (
-        settings.token_budget_degrade_mode == TokenBudgetDegradeMode.HARD_STOP
-        and budget_state.degrade_level != BudgetDegradeLevel.HARD_STOP
         and budget_state.estimated_tokens_used_today >= settings.daily_token_budget_tokens
     ):
-        budget_state.degrade_level = BudgetDegradeLevel.HARD_STOP
+        budget_state.degrade_level = BudgetDegradeLevel.BUDGET_STOP
         logger.warning(
-            "Hard-stop mode activated: estimated daily token budget exhausted "
-            "(used=%d, budget=%d). All LLM crews disabled until UTC reset.",
+            "Advisory budget stop: estimated tokens=%d >= budget=%d. "
+            "Advisory crew disabled for the rest of the UTC day.",
             budget_state.estimated_tokens_used_today,
             settings.daily_token_budget_tokens,
         )
         _notify_budget_breach_once(
             budget_state,
             notification_service,
-            "Daily token budget exhausted. Hard-stop mode enabled until UTC day reset.",
+            "Daily token budget exhausted. Advisory crew disabled until UTC day reset.",
         )
-
-
-def _apply_degrade_to_plan(
-    settings: Settings,
-    budget_state: BudgetRuntimeState,
-    plan: RunPlan,
-) -> RunPlan:
-    """Overlay budget degrade constraints onto run plan."""
-    if budget_state.degrade_level in (
-        BudgetDegradeLevel.STRATEGY_OFF,
-        BudgetDegradeLevel.HARD_STOP,
-    ):
-        plan.run_strategy = False
-        if settings.cost_contention_enabled:
-            plan.run_execution = bool(plan.open_orders_count and plan.open_orders_count > 0)
-
-    if budget_state.degrade_level == BudgetDegradeLevel.HARD_STOP:
-        plan.run_market = False
-        plan.run_strategy = False
-        plan.run_execution = False
-
-    return plan
 
 
 def _accumulate_estimated_tokens(
     settings: Settings,
     budget_state: BudgetRuntimeState,
-    ran_market: bool,
-    ran_strategy: bool,
-    ran_execution: bool,
+    advisory_ran: bool,
 ) -> None:
-    """Increment estimated token usage counters based on executed crews."""
+    """Increment estimated token usage when the advisory crew ran."""
     if not settings.daily_token_budget_enabled:
         return
-    if ran_market:
-        budget_state.estimated_tokens_used_today += settings.market_crew_estimated_tokens
-    if ran_strategy:
-        budget_state.estimated_tokens_used_today += settings.strategy_crew_estimated_tokens
-    if ran_execution:
-        budget_state.estimated_tokens_used_today += settings.execution_crew_estimated_tokens
+    if advisory_ran:
+        budget_state.estimated_tokens_used_today += settings.advisory_estimated_tokens
 
 
 def _apply_market_data_gate(plan: RunPlan, state: CycleState) -> RunPlan:
@@ -506,25 +447,24 @@ async def main_async() -> None:
     _setup_logging(settings.log_level, capture_stdout=not settings.crewai_verbose)
 
     logger.info("=" * 60)
-    logger.info("Trading Crew v0.10.0 starting (Position Guard System)")
+    logger.info("Trading Crew starting (Advisory Architecture)")
     logger.info("Mode: %s", settings.trading_mode.value)
     logger.info("Exchange: %s (sandbox=%s)", settings.exchange_id, settings.exchange_sandbox)
     logger.info("Symbols: %s", ", ".join(settings.symbols))
     logger.info("Loop interval: %ds", settings.loop_interval_seconds)
-    logger.info("Market pipeline mode: %s", settings.market_pipeline_mode.value)
     logger.info(
         "Market regime thresholds: volatility=%.4f, trend=%.4f",
         settings.market_regime_volatility_threshold,
         settings.market_regime_trend_threshold,
     )
     logger.info("Sentiment enrichment enabled: %s", settings.sentiment_enabled)
-    logger.info("Strategy pipeline mode: %s", settings.strategy_pipeline_mode.value)
-    logger.info("Execution pipeline mode: %s", settings.execution_pipeline_mode.value)
     logger.info(
-        "Stale order cancel: %dmin (partial fills: %dmin)",
-        settings.stale_order_cancel_minutes,
-        settings.stale_partial_fill_cancel_minutes,
+        "Advisory: enabled=%s, threshold=%.2f, estimated_tokens=%d",
+        settings.advisory_enabled,
+        settings.advisory_activation_threshold,
+        settings.advisory_estimated_tokens,
     )
+    logger.info("Execution poll interval: %ds", settings.execution_poll_interval_seconds)
     logger.info("Ensemble mode: %s", settings.ensemble_enabled)
     logger.info(
         "Stop-loss method: %s (ATR multiplier=%.1f)",
@@ -537,27 +477,12 @@ async def main_async() -> None:
         if settings.is_live
         else f"config ({settings.initial_balance_quote:.2f})",
     )
-    logger.info("Cost contention mode: %s", settings.cost_contention_enabled)
-    if settings.cost_contention_enabled:
-        logger.info(
-            "Crew intervals (market=%ds, strategy=%ds, execution=%ds)",
-            settings.market_crew_interval_seconds,
-            settings.strategy_crew_interval_seconds,
-            settings.execution_crew_interval_seconds,
-        )
     logger.info("Daily token budget enabled: %s", settings.daily_token_budget_enabled)
     if settings.daily_token_budget_enabled:
         logger.info(
-            "Daily token budget: %d (estimates: market=%d, strategy=%d, execution=%d)",
+            "Daily token budget: %d (advisory estimated: %d per activation)",
             settings.daily_token_budget_tokens,
-            settings.market_crew_estimated_tokens,
-            settings.strategy_crew_estimated_tokens,
-            settings.execution_crew_estimated_tokens,
-        )
-        logger.info(
-            "Budget degrade mode: %s (non_llm_monitor_on_hard_stop=%s)",
-            settings.token_budget_degrade_mode.value,
-            settings.non_llm_monitor_on_hard_stop,
+            settings.advisory_estimated_tokens,
         )
     logger.info("=" * 60)
 
@@ -667,71 +592,49 @@ async def main_async() -> None:
         )
 
     portfolio = Portfolio(balance_quote=seed_balance, peak_balance=seed_balance)
+    db_service.save_portfolio(portfolio)
 
     # -- Load YAML configs ----------------------------------------------------
     agent_configs = _load_yaml(str(settings.agents_yaml_path))
     task_configs = _load_yaml(str(settings.tasks_yaml_path))
 
-    # -- Create agents --------------------------------------------------------
-    _verbose = settings.crewai_verbose
-    sentinel = create_sentinel_agent(
-        exchange_service,
-        db_service,
-        agent_configs.get("sentinel", {}),
-        verbose=_verbose,
-    )
-    analyst = create_analyst_agent(agent_configs.get("analyst", {}), verbose=_verbose)
-    sentiment = create_sentiment_agent(agent_configs.get("sentiment", {}), verbose=_verbose)
-    strategist = create_strategist_agent(
-        agent_configs.get("strategist", {}),
-        strategy_runner=strategy_runner,
-        verbose=_verbose,
-    )
-    risk_manager = create_risk_manager_agent(
-        agent_configs.get("risk_manager", {}),
-        risk_pipeline=risk_pipeline,
-        portfolio=portfolio,
-        verbose=_verbose,
-    )
-    executor = create_executor_agent(
-        exchange_service,
-        notification_service,
-        agent_configs.get("executor", {}),
-        db_service=db_service,
-        verbose=_verbose,
-    )
-    monitor = create_monitor_agent(
-        notification_service,
-        agent_configs.get("monitor", {}),
-        exchange_service=exchange_service,
-        db_service=db_service,
-        verbose=_verbose,
+    # -- Uncertainty scorer ---------------------------------------------------
+    uncertainty_scorer = UncertaintyScorer(
+        weights=UncertaintyWeights(
+            volatile_regime=settings.uncertainty_weight_volatile_regime,
+            sentiment_extreme=settings.uncertainty_weight_sentiment_extreme,
+            low_sentiment_confidence=settings.uncertainty_weight_low_sentiment_confidence,
+            strategy_disagreement=settings.uncertainty_weight_strategy_disagreement,
+            drawdown_proximity=settings.uncertainty_weight_drawdown_proximity,
+            regime_change=settings.uncertainty_weight_regime_change,
+        ),
+        activation_threshold=settings.advisory_activation_threshold,
     )
 
-    # -- Build crews ----------------------------------------------------------
-    market_crew = MarketCrew(
-        sentinel=sentinel,
-        analyst=analyst,
-        sentiment=sentiment,
-        task_configs=task_configs,
-        symbols=settings.symbols,
-        exchange_id=settings.exchange_id,
-        timeframe=settings.default_timeframe,
-    ).build(verbose=_verbose)
-
-    strategy_crew = StrategyCrew(
-        strategist=strategist,
-        risk_manager=risk_manager,
-        task_configs=task_configs,
-        risk_params=settings.risk,
-    ).build(verbose=_verbose)
-
-    execution_crew = ExecutionCrew(
-        executor=executor,
-        monitor=monitor,
-        task_configs=task_configs,
-        stale_order_cancel_minutes=settings.stale_order_cancel_minutes,
-    ).build(verbose=_verbose)
+    # -- Advisory crew (optional) ---------------------------------------------
+    advisory_crew: AdvisoryCrew | None = None
+    if settings.advisory_enabled and settings.openai_api_key:
+        _verbose = settings.crewai_verbose
+        context_advisor = create_context_advisor(
+            agent_configs.get("context_advisor", {}), verbose=_verbose
+        )
+        risk_advisor = create_risk_advisor(agent_configs.get("risk_advisor", {}), verbose=_verbose)
+        sentiment_advisor = create_sentiment_advisor(
+            agent_configs.get("sentiment_advisor", {}), verbose=_verbose
+        )
+        advisory_crew = AdvisoryCrew(
+            context_advisor=context_advisor,
+            risk_advisor=risk_advisor,
+            sentiment_advisor=sentiment_advisor,
+            task_configs=task_configs,
+        )
+        logger.info("Advisory crew initialized (3 agents)")
+    else:
+        logger.info(
+            "Advisory crew disabled (advisory_enabled=%s, api_key_set=%s)",
+            settings.advisory_enabled,
+            bool(settings.openai_api_key),
+        )
 
     # -- Notify startup -------------------------------------------------------
     notification_service.notify(
@@ -743,14 +646,10 @@ async def main_async() -> None:
     # -- Trading loop ---------------------------------------------------------
     logger.info("Entering trading loop (Ctrl+C to stop)...")
     cycle = 0
-    last_market_run: float | None = None
-    last_strategy_run: float | None = None
-    last_execution_run: float | None = None
+    last_execution_poll: float | None = None
     budget_state = BudgetRuntimeState(token_budget_day=_utc_today())
-    # Cross-cycle cache: most recent market analyses, used as a stop-loss
-    # price fallback when the market phase is skipped this cycle.
     last_market_analyses: dict[str, MarketAnalysis] = {}
-    # Timestamp of the last wallet balance sync (live mode only).
+    previous_regimes: dict[str, str] = {}
     last_balance_sync: datetime = datetime.now(UTC)
 
     while not shutdown_event.is_set():
@@ -758,8 +657,6 @@ async def main_async() -> None:
         logger.info("--- Cycle %d ---", cycle)
 
         try:
-            # Pre-cycle wallet sync: keeps balance_quote accurate in live mode
-            # without racing with fill reconciliation (runs before any orders).
             if settings.is_live and settings.balance_sync_interval_seconds > 0:
                 last_balance_sync = await _sync_balance_if_due(
                     exchange_service,
@@ -773,16 +670,8 @@ async def main_async() -> None:
 
             _refresh_budget_day(settings, budget_state)
             now = time.monotonic()
-            plan = _build_run_plan(
-                settings,
-                db_service,
-                now,
-                last_market_run,
-                last_strategy_run,
-                last_execution_run,
-            )
+            plan = _build_run_plan(settings, db_service, now, last_execution_poll)
             _update_degrade_level(settings, budget_state, notification_service)
-            plan = _apply_degrade_to_plan(settings, budget_state, plan)
 
             flow = TradingFlow(
                 cycle_number=cycle,
@@ -798,31 +687,27 @@ async def main_async() -> None:
                 execution_service=execution_service,
                 db_service=db_service,
                 notif_service=notification_service,
-                market_crew=market_crew,
-                strategy_crew=strategy_crew,
-                execution_crew=execution_crew,
+                uncertainty_scorer=uncertainty_scorer,
+                advisory_crew=advisory_crew,
+                previous_regimes=previous_regimes,
                 settings=settings,
             )
             await flow.akickoff()
 
-            # Update cross-cycle market analysis cache from this cycle's state
             if plan.run_market and flow.state.market_analyses:
                 last_market_analyses = flow.state.market_analyses
+                previous_regimes = {
+                    sym: a.metadata.market_regime or "unknown"
+                    for sym, a in flow.state.market_analyses.items()
+                }
 
-            # Update interval timestamps based on what actually ran
-            if plan.run_market:
-                last_market_run = now
-            if plan.run_strategy:
-                last_strategy_run = now
             if plan.run_execution:
-                last_execution_run = now
+                last_execution_poll = now
 
             _accumulate_estimated_tokens(
                 settings,
                 budget_state,
-                ran_market=plan.run_market,
-                ran_strategy=plan.run_strategy,
-                ran_execution=plan.run_execution,
+                advisory_ran=flow.state.advisory_ran,
             )
 
             if settings.daily_token_budget_enabled:

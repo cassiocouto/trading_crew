@@ -392,12 +392,19 @@ class TestSystemStatus:
         r = client.get("/api/system/status")
         assert r.status_code == 200
         data = r.json()
-        assert data["version"] == "0.7.0"
+        assert data["version"] == "1.0.0"
 
     def test_status_fields_present(self, client: TestClient, seeded: None) -> None:
         r = client.get("/api/system/status")
         data = r.json()
-        for field in ("trading_mode", "total_cycles", "circuit_breaker_active"):
+        for field in (
+            "trading_mode",
+            "advisory_enabled",
+            "advisory_activation_threshold",
+            "total_cycles",
+            "circuit_breaker_active",
+            "dashboard_ws_poll_interval_seconds",
+        ):
             assert field in data
 
     def test_system_agents_alias(self, client: TestClient, seeded: None) -> None:
@@ -412,22 +419,23 @@ class TestSystemStatus:
 
 
 class TestAgentsEndpoint:
-    def test_agents_returns_three_agents(self, client: TestClient, seeded: None) -> None:
+    def test_agents_returns_single_advisory_crew(self, client: TestClient, seeded: None) -> None:
         r = client.get("/api/agents/")
         assert r.status_code == 200
         agents = r.json()
-        assert len(agents) == 3
+        assert len(agents) == 1
 
     def test_agent_names_present(self, client: TestClient, seeded: None) -> None:
         r = client.get("/api/agents/")
         names = {a["name"] for a in r.json()}
-        assert {"market_intelligence", "strategy", "execution"} == names
+        assert {"advisory_crew"} == names
 
-    def test_agents_have_pipeline_mode(self, client: TestClient, seeded: None) -> None:
+    def test_agents_have_role(self, client: TestClient, seeded: None) -> None:
         r = client.get("/api/agents/")
         for agent in r.json():
-            assert "pipeline_mode" in agent
-            assert agent["pipeline_mode"] in ("crewai", "deterministic", "hybrid")
+            assert "role" in agent
+            assert agent["role"] == "Condition-triggered advisory"
+            assert "is_active" in agent
 
 
 # ---------------------------------------------------------------------------
@@ -527,37 +535,31 @@ class TestNotificationService:
         return svc
 
     def test_critical_only_blocks_order_filled(self) -> None:
-
         svc: NotificationService = self._make_service("critical_only")  # type: ignore[assignment]
         svc.notify_order_filled("BTC/USDT", "buy", 0.1, 60_000.0, 0.0)
         svc._mock_channel.send.assert_not_called()  # type: ignore[attr-defined]
 
     def test_critical_only_allows_circuit_breaker(self) -> None:
-
         svc: NotificationService = self._make_service("critical_only")  # type: ignore[assignment]
         svc.notify_circuit_breaker_activated("draw-down limit exceeded")
         svc._mock_channel.send.assert_called_once()  # type: ignore[attr-defined]
 
     def test_trades_only_blocks_cycle_summary(self) -> None:
-
         svc: NotificationService = self._make_service("trades_only")  # type: ignore[assignment]
         svc.notify_cycle_summary(1, 10_000.0, 100.0, 2)
         svc._mock_channel.send.assert_not_called()  # type: ignore[attr-defined]
 
     def test_trades_only_allows_order_filled(self) -> None:
-
         svc: NotificationService = self._make_service("trades_only")  # type: ignore[assignment]
         svc.notify_order_filled("BTC/USDT", "sell", 0.1, 65_000.0, 500.0)
         svc._mock_channel.send.assert_called_once()  # type: ignore[attr-defined]
 
     def test_all_allows_cycle_summary(self) -> None:
-
         svc: NotificationService = self._make_service("all")  # type: ignore[assignment]
         svc.notify_cycle_summary(5, 11_000.0, 1_000.0, 3)
         svc._mock_channel.send.assert_called_once()  # type: ignore[attr-defined]
 
     def test_stop_loss_blocked_at_critical_only(self) -> None:
-
         svc: NotificationService = self._make_service("critical_only")  # type: ignore[assignment]
         svc.notify_stop_loss_triggered("ETH/USDT", 3_000.0, -200.0)
         svc._mock_channel.send.assert_not_called()  # type: ignore[attr-defined]

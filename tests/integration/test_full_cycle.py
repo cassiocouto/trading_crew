@@ -14,11 +14,6 @@ import pytest
 from sqlalchemy.pool import StaticPool
 
 from tests.integration.conftest import make_mock_exchange
-from trading_crew.config.settings import (
-    ExecutionPipelineMode,
-    MarketPipelineMode,
-    StrategyPipelineMode,
-)
 from trading_crew.db.session import get_engine, init_db
 from trading_crew.flows.trading_flow import TradingFlow
 from trading_crew.main import BudgetDegradeLevel, BudgetRuntimeState, RunPlan
@@ -30,6 +25,7 @@ from trading_crew.services.market_intelligence_service import MarketIntelligence
 from trading_crew.services.notification_service import NotificationService
 from trading_crew.services.risk_pipeline import RiskPipeline
 from trading_crew.services.strategy_runner import StrategyRunner
+from trading_crew.services.uncertainty_scorer import UncertaintyScorer
 from trading_crew.strategies.ema_crossover import EMACrossoverStrategy
 
 SYMBOL = "BTC/USDT"
@@ -72,12 +68,12 @@ def mock_exchange():
 
 def _make_settings(**overrides):
     from trading_crew.config.settings import Settings
+    from trading_crew.models.risk import RiskParams
 
     s = MagicMock(spec=Settings)
-    s.market_pipeline_mode = MarketPipelineMode.DETERMINISTIC
-    s.strategy_pipeline_mode = StrategyPipelineMode.DETERMINISTIC
-    s.execution_pipeline_mode = ExecutionPipelineMode.DETERMINISTIC
-    s.non_llm_monitor_on_hard_stop = False
+    s.advisory_enabled = False
+    s.advisory_activation_threshold = 0.6
+    s.risk = RiskParams()
     s.save_cycle_history = True
     s.stop_loss_monitoring_enabled = False
     s.symbols = [SYMBOL]
@@ -141,6 +137,8 @@ async def test_full_cycle_produces_records(db_service, mock_exchange):
     )
     portfolio = Portfolio(balance_quote=10_000.0, peak_balance=10_000.0)
 
+    uncertainty_scorer = UncertaintyScorer()
+
     flow = TradingFlow(
         cycle_number=1,
         symbols=[SYMBOL],
@@ -155,9 +153,7 @@ async def test_full_cycle_produces_records(db_service, mock_exchange):
         execution_service=execution_service,
         db_service=db_service,
         notif_service=notification_service,
-        market_crew=MagicMock(),
-        strategy_crew=MagicMock(),
-        execution_crew=MagicMock(),
+        uncertainty_scorer=uncertainty_scorer,
         settings=_make_settings(),
     )
 
@@ -212,6 +208,7 @@ async def test_full_cycle_no_exceptions_raised(db_service, mock_exchange):
         stop_loss_method="fixed",
     )
     portfolio = Portfolio(balance_quote=10_000.0, peak_balance=10_000.0)
+    uncertainty_scorer = UncertaintyScorer()
 
     flow = TradingFlow(
         cycle_number=1,
@@ -227,9 +224,7 @@ async def test_full_cycle_no_exceptions_raised(db_service, mock_exchange):
         execution_service=execution_service,
         db_service=db_service,
         notif_service=notification_service,
-        market_crew=MagicMock(),
-        strategy_crew=MagicMock(),
-        execution_crew=MagicMock(),
+        uncertainty_scorer=uncertainty_scorer,
         settings=_make_settings(),
     )
 

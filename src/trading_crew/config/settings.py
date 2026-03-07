@@ -30,35 +30,10 @@ class TradingMode(StrEnum):
 
 
 class TokenBudgetDegradeMode(StrEnum):
-    """Maximum degrade stage allowed after daily budget pressure."""
+    """Budget degrade stage.  NORMAL allows advisory; BUDGET_STOP disables it."""
 
-    OFF = "off"
-    STRATEGY_ONLY = "strategy_only"
-    HARD_STOP = "hard_stop"
-
-
-class MarketPipelineMode(StrEnum):
-    """How market intelligence should execute each due cycle."""
-
-    CREWAI = "crewai"
-    DETERMINISTIC = "deterministic"
-    HYBRID = "hybrid"
-
-
-class StrategyPipelineMode(StrEnum):
-    """How the strategy/risk pipeline should execute each due cycle."""
-
-    CREWAI = "crewai"
-    DETERMINISTIC = "deterministic"
-    HYBRID = "hybrid"
-
-
-class ExecutionPipelineMode(StrEnum):
-    """How the execution pipeline should place and monitor orders each cycle."""
-
-    CREWAI = "crewai"
-    DETERMINISTIC = "deterministic"
-    HYBRID = "hybrid"
+    NORMAL = "normal"
+    BUDGET_STOP = "budget_stop"
 
 
 class StopLossMethod(StrEnum):
@@ -138,17 +113,8 @@ class Settings(BaseSettings):
     stale_order_cancel_minutes: int = Field(default=10, ge=1)
     stale_partial_fill_cancel_minutes: int = Field(default=360, ge=1)
 
-    # -- Cost contention mode -------------------------------------------------
-    cost_contention_enabled: bool = True
-    market_crew_interval_seconds: int = Field(default=900, ge=10)
-    strategy_crew_interval_seconds: int = Field(default=1800, ge=10)
-    execution_crew_interval_seconds: int = Field(default=900, ge=10)
-
-    # -- Execution pipeline (Phase 4) -----------------------------------------
-    execution_pipeline_mode: ExecutionPipelineMode = ExecutionPipelineMode.DETERMINISTIC
-
-    # -- Strategy pipeline (Phase 3) ------------------------------------------
-    strategy_pipeline_mode: StrategyPipelineMode = StrategyPipelineMode.DETERMINISTIC
+    # -- Execution polling (open-order reconciliation) -----------------------
+    execution_poll_interval_seconds: int = Field(default=900, ge=10)
     ensemble_enabled: bool = False
     ensemble_agreement_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     stop_loss_method: StopLossMethod = StopLossMethod.FIXED
@@ -198,7 +164,6 @@ class Settings(BaseSettings):
     )
 
     # -- Market intelligence pipeline -----------------------------------------
-    market_pipeline_mode: MarketPipelineMode = MarketPipelineMode.DETERMINISTIC
     market_data_candle_limit: int = Field(default=120, ge=20, le=1000)
     market_regime_volatility_threshold: float = Field(default=0.03, ge=0.0, le=1.0)
     market_regime_trend_threshold: float = Field(default=0.01, ge=0.0, le=1.0)
@@ -207,14 +172,23 @@ class Settings(BaseSettings):
     sentiment_fear_greed_weight: float = Field(default=1.0, ge=0.0)
     sentiment_request_timeout_seconds: int = Field(default=5, ge=1, le=30)
 
+    # -- Advisory gate (condition-triggered advisory crew) --------------------
+    advisory_enabled: bool = True
+    advisory_activation_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    advisory_estimated_tokens: int = Field(default=4_000, ge=0)
+
+    # -- Uncertainty score weights --------------------------------------------
+    uncertainty_weight_volatile_regime: float = Field(default=0.3, ge=0.0, le=1.0)
+    uncertainty_weight_sentiment_extreme: float = Field(default=0.2, ge=0.0, le=1.0)
+    uncertainty_weight_low_sentiment_confidence: float = Field(default=0.2, ge=0.0, le=1.0)
+    uncertainty_weight_strategy_disagreement: float = Field(default=0.3, ge=0.0, le=1.0)
+    uncertainty_weight_drawdown_proximity: float = Field(default=0.2, ge=0.0, le=1.0)
+    uncertainty_weight_regime_change: float = Field(default=0.3, ge=0.0, le=1.0)
+
     # -- Daily token budget guard ---------------------------------------------
     daily_token_budget_enabled: bool = True
     daily_token_budget_tokens: int = Field(default=600_000, ge=1)
-    token_budget_degrade_mode: TokenBudgetDegradeMode = TokenBudgetDegradeMode.STRATEGY_ONLY
-    non_llm_monitor_on_hard_stop: bool = True
-    market_crew_estimated_tokens: int = Field(default=1_500, ge=0)
-    strategy_crew_estimated_tokens: int = Field(default=6_000, ge=0)
-    execution_crew_estimated_tokens: int = Field(default=1_000, ge=0)
+    token_budget_degrade_mode: TokenBudgetDegradeMode = TokenBudgetDegradeMode.NORMAL
 
     # -- Flow orchestration (Phase 5) -----------------------------------------
     save_cycle_history: bool = True

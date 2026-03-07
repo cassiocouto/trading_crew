@@ -1,45 +1,31 @@
-"""Strategist Agent — signal generation.
+"""Market Context Advisor agent.
 
-Evaluates market analysis data through the configured trading strategies
-and produces trade signals with confidence scores.
+Reviews deterministic pipeline output (market analyses, signals, risk results,
+uncertainty factors) and recommends adjustments when market conditions warrant
+human-like contextual reasoning.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from crewai import Agent
 
-if TYPE_CHECKING:
-    from trading_crew.services.strategy_runner import StrategyRunner
 
-
-def create_strategist_agent(
+def create_context_advisor(
     agent_config: dict[str, str],
-    strategy_runner: StrategyRunner | None = None,
     verbose: bool = False,
 ) -> Agent:
-    """Create the Strategist Agent.
+    """Create the Market Context Advisor agent.
 
     Args:
         agent_config: Agent role/goal/backstory from agents.yaml.
-        strategy_runner: Optional StrategyRunner service. When provided,
-            a RunStrategiesTool is attached so the agent can trigger
-            deterministic strategy evaluation.
 
     Returns:
         A configured CrewAI Agent.
     """
-    tools: list[object] = []
-    if strategy_runner is not None:
-        from trading_crew.tools.strategy_tool import RunStrategiesTool
-
-        tools.append(RunStrategiesTool(strategy_runner=strategy_runner))
-
     return Agent(
-        role=agent_config.get("role", "Trading Strategist"),
-        goal=agent_config.get("goal", "Generate trade signals"),
-        backstory=agent_config.get("backstory", "Systematic trader"),
-        tools=tools,
+        role=agent_config.get("role", "Market Context Advisor"),
+        goal=agent_config.get("goal", "Provide contextual trading advice"),
+        backstory=agent_config.get("backstory", "Senior market analyst"),
+        tools=[],
         verbose=verbose,
     )

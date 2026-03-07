@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Full simulation backtest** — new `SimulationRunner` runs the real `TradingFlow` per historical candle against a `SimulatedExchangeService` and in-memory SQLite database; produces the same `BacktestResult` format as the legacy `BacktestService`; includes circuit-breaker halting, break-even sell guards, anti-averaging-down, and all DB-dependent guards
+- **`SimulatedExchangeService`** (`services/simulated_exchange.py`) — drop-in mock of `ExchangeService` implementing all 12 async methods + 2 properties; replays preloaded candles, simulates immediate order fills at close +/- slippage; single-symbol scope with `ValueError` on unknown symbols
+- **`candle_loader.load_candles_csv()`** (`services/candle_loader.py`) — parses Binance kline CSV files (headerless or with header) into `list[OHLCV]`; supports `start`/`end` date filtering, `max_bars` truncation, and OHLCV-correct resampling to larger timeframes (e.g. 1m → 1h)
+- **`--simulation` CLI flag** on `scripts/backtest_runner.py` — routes to `SimulationRunner` instead of legacy `BacktestService`
+- **`--candles-file`** CLI flag — load candles from a local CSV file (Binance kline format) instead of fetching from the exchange; `--from-date`/`--to-date` become optional when using this flag
+- **`--resample`** CLI flag — aggregate loaded candles to a larger timeframe (e.g. `--resample 1h`)
+- **`--max-bars`** CLI flag (default: 50,000) — safety valve to prevent accidental multi-million bar runs
+- **`simulation_mode` field** on `BacktestConfig`, `BacktestRunRequest` API schema, and backtest router — when true, API uses `SimulationRunner`
+- **Full Simulation toggle** on the dashboard backtest page — checkbox next to the advisory mode selector
+- **39 new unit tests** — `test_simulated_exchange.py` (17 tests), `test_candle_loader.py` (14 tests), `test_simulation_runner.py` (7 tests) covering method coverage, CSV parsing, resampling, circuit-breaker halting, and equity curve correctness
+
 ## [0.10.0] — 2026-03-04
 
 ### Added

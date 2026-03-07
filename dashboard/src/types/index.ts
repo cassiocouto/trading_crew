@@ -103,14 +103,16 @@ export interface CycleResponse {
   realized_pnl: number;
   circuit_breaker_tripped: boolean;
   errors_json: string;
+  uncertainty_score: number;
+  advisory_ran: boolean;
+  advisory_adjustments_json: string;
 }
 
 export interface SystemStatusResponse {
   version: string;
   trading_mode: string;
-  market_pipeline_mode: string;
-  strategy_pipeline_mode: string;
-  execution_pipeline_mode: string;
+  advisory_enabled: boolean;
+  advisory_activation_threshold: number;
   total_cycles: number;
   circuit_breaker_active: boolean;
   dashboard_ws_poll_interval_seconds: number;
@@ -118,9 +120,9 @@ export interface SystemStatusResponse {
 
 export interface AgentStatusResponse {
   name: string;
-  pipeline_mode: string;
+  role: string;
   last_run_at: string | null;
-  tokens_estimated: number;
+  advisory_activations_today: number;
   is_active: boolean;
 }
 
@@ -155,4 +157,8 @@ export interface BacktestResultResponse {
   total_fees: number;
   final_balance: number;
   trades: BacktestTradeResponse[];
+  advisory_mode: string;
+  advisory_activations: number;
+  advisory_vetoes: number;
+  avg_uncertainty_score: number;
 }
