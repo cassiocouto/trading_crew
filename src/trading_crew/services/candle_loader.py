@@ -103,7 +103,7 @@ def _read_csv(filepath: Path) -> list[list[str]]:
         for row in reader:
             if not row:
                 continue
-            if row[0].strip().lower() in ("open_time", "timestamp", "date"):
+            if row[0].strip().lower() in ("open_time", "timestamp", "date", "t"):
                 continue
             rows.append(row)
     return rows

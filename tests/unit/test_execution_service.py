@@ -1183,7 +1183,81 @@ class TestHelpers:
 
 
 # ---------------------------------------------------------------------------
-# 23. _compute_break_even helper
+# 23. sell_validation_portfolio (Fix 1a)
+# ---------------------------------------------------------------------------
+
+
+class TestSellValidationPortfolio:
+    """Verify that the sell_validation_portfolio parameter is used for SELL
+    position-exists checks while BUY balance checks use the main portfolio."""
+
+    @pytest.mark.asyncio
+    async def test_sell_passes_with_snapshot_containing_position(self) -> None:
+        """SELL should pass when the pre-reserve snapshot has the position."""
+        svc, _ex, _db, _nf = _make_service()
+        req = _make_sell_request(amount=0.1, price=55_000.0)
+
+        # Main portfolio: position already tentatively removed
+        portfolio = _make_portfolio(balance=5_500.0)
+        # Snapshot: position still exists
+        snapshot = _make_portfolio_with_position(amount=0.1, entry_price=50_000.0)
+
+        result = await svc.process_order_requests(
+            [req], portfolio, sell_validation_portfolio=snapshot
+        )
+
+        assert len(result.failed) == 0
+        assert len(result.placed) == 1
+
+    @pytest.mark.asyncio
+    async def test_sell_fails_without_snapshot_and_no_position(self) -> None:
+        """SELL should fail when no snapshot and position is missing from main portfolio."""
+        svc, _ex, _db, _nf = _make_service()
+        req = _make_sell_request(amount=0.1)
+        portfolio = _make_portfolio()  # no position
+
+        result = await svc.process_order_requests([req], portfolio)
+
+        assert len(result.failed) == 1
+        assert "no position" in result.failed[0].error_reason
+
+    @pytest.mark.asyncio
+    async def test_buy_balance_check_uses_main_portfolio_not_snapshot(self) -> None:
+        """BUY balance check should use the post-reserve portfolio, not the snapshot."""
+        svc, _ex, _db, _nf = _make_service()
+        req = _make_buy_request(amount=1.0, price=50_000.0)  # costs 50k
+
+        # Main portfolio: balance reduced by prior reservations
+        portfolio = _make_portfolio(balance=100.0)
+        # Snapshot: full balance (should NOT be used for BUY check)
+        snapshot = _make_portfolio(balance=100_000.0)
+
+        result = await svc.process_order_requests(
+            [req], portfolio, sell_validation_portfolio=snapshot
+        )
+
+        assert len(result.failed) == 1
+        assert "balance" in result.failed[0].error_reason
+
+    @pytest.mark.asyncio
+    async def test_sell_exceeds_snapshot_position_rejected(self) -> None:
+        """SELL amount exceeding the snapshot's position size should be rejected."""
+        svc, _ex, _db, _nf = _make_service()
+        req = _make_sell_request(amount=1.0)  # selling 1 BTC
+
+        portfolio = _make_portfolio()
+        snapshot = _make_portfolio_with_position(amount=0.05)  # only 0.05 BTC in snapshot
+
+        result = await svc.process_order_requests(
+            [req], portfolio, sell_validation_portfolio=snapshot
+        )
+
+        assert len(result.failed) == 1
+        assert "exceeds" in result.failed[0].error_reason
+
+
+# ---------------------------------------------------------------------------
+# 24. _compute_break_even helper
 # ---------------------------------------------------------------------------
 
 

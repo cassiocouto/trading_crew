@@ -472,6 +472,196 @@ class TestStopLossMonitoring:
 
 
 # ---------------------------------------------------------------------------
+# TestDedupSellOrders
+# ---------------------------------------------------------------------------
+
+
+class TestDedupSellOrders:
+    """Tests for the _dedup_sell_orders module-level helper."""
+
+    def test_duplicate_sells_merged_to_largest(self):
+        from trading_crew.flows.trading_flow import _dedup_sell_orders
+
+        portfolio = _make_portfolio()
+        portfolio.positions["BTC/USDT"] = _make_position(current_price=50_000.0)
+
+        req1 = OrderRequest(
+            symbol="BTC/USDT",
+            exchange="binance",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            amount=0.005,
+            strategy_name="strat_a",
+        )
+        req2 = OrderRequest(
+            symbol="BTC/USDT",
+            exchange="binance",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            amount=0.01,
+            strategy_name="strat_b",
+        )
+        req3 = OrderRequest(
+            symbol="BTC/USDT",
+            exchange="binance",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            amount=0.008,
+            strategy_name="strat_c",
+        )
+
+        result = _dedup_sell_orders([req1, req2, req3], portfolio)
+        sells = [r for r in result if r.side == OrderSide.SELL]
+        assert len(sells) == 1
+        assert sells[0].amount == 0.01  # largest
+
+    def test_sell_capped_at_position_size(self):
+        from trading_crew.flows.trading_flow import _dedup_sell_orders
+
+        portfolio = _make_portfolio()
+        portfolio.positions["BTC/USDT"] = _make_position(current_price=50_000.0)
+        pos_amount = portfolio.positions["BTC/USDT"].amount  # 0.01
+
+        # Request exceeds position
+        req = OrderRequest(
+            symbol="BTC/USDT",
+            exchange="binance",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            amount=0.05,
+            strategy_name="strat_x",
+        )
+
+        result = _dedup_sell_orders([req], portfolio)
+        sells = [r for r in result if r.side == OrderSide.SELL]
+        assert len(sells) == 1
+        assert sells[0].amount == pos_amount
+
+    def test_buy_orders_pass_through(self):
+        from trading_crew.flows.trading_flow import _dedup_sell_orders
+
+        portfolio = _make_portfolio()
+        buy1 = OrderRequest(
+            symbol="BTC/USDT",
+            exchange="binance",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            amount=0.01,
+            strategy_name="strat_a",
+        )
+        buy2 = OrderRequest(
+            symbol="ETH/USDT",
+            exchange="binance",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            amount=0.1,
+            strategy_name="strat_b",
+        )
+
+        result = _dedup_sell_orders([buy1, buy2], portfolio)
+        assert len(result) == 2
+
+    def test_mixed_buy_and_sell(self):
+        from trading_crew.flows.trading_flow import _dedup_sell_orders
+
+        portfolio = _make_portfolio()
+        portfolio.positions["BTC/USDT"] = _make_position(current_price=50_000.0)
+
+        buy = OrderRequest(
+            symbol="BTC/USDT",
+            exchange="binance",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            amount=0.01,
+            strategy_name="strat_a",
+        )
+        sell1 = OrderRequest(
+            symbol="BTC/USDT",
+            exchange="binance",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            amount=0.005,
+            strategy_name="strat_b",
+        )
+        sell2 = OrderRequest(
+            symbol="BTC/USDT",
+            exchange="binance",
+            side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            amount=0.01,
+            strategy_name="strat_c",
+        )
+
+        result = _dedup_sell_orders([buy, sell1, sell2], portfolio)
+        buys = [r for r in result if r.side == OrderSide.BUY]
+        sells = [r for r in result if r.side == OrderSide.SELL]
+        assert len(buys) == 1
+        assert len(sells) == 1
+        assert sells[0].amount == 0.01
+
+    def test_empty_order_list(self):
+        from trading_crew.flows.trading_flow import _dedup_sell_orders
+
+        result = _dedup_sell_orders([], _make_portfolio())
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# TestStopLossNoTentativeReservation
+# ---------------------------------------------------------------------------
+
+
+class TestStopLossNoTentativeReservation:
+    """Verify stop-loss handler doesn't tentatively mutate the portfolio."""
+
+    @pytest.mark.asyncio
+    async def test_stop_loss_preserves_position_before_execution(self):
+        """Position should still exist in the portfolio when execution is called."""
+        exec_svc = _make_exec_svc_mock()
+        portfolio = _make_portfolio()
+        portfolio.positions["BTC/USDT"] = _make_position(
+            current_price=45_000.0, stop_loss_price=46_000.0
+        )
+        original_amount = portfolio.positions["BTC/USDT"].amount
+
+        captured_portfolio = None
+
+        async def _capture_portfolio(reqs, port, **kwargs):
+            nonlocal captured_portfolio
+            captured_portfolio = port
+            return MagicMock(placed=[], filled=[], cancelled=[], failed=[])
+
+        exec_svc.process_order_requests = _capture_portfolio
+
+        flow = _build_flow(portfolio=portfolio, execution_service=exec_svc)
+        pos = portfolio.positions["BTC/USDT"]
+        await flow._on_stop_loss_triggered("BTC/USDT", pos, 45_000.0)
+
+        # The portfolio passed to execution should still have the position
+        assert "BTC/USDT" in captured_portfolio.positions
+        assert captured_portfolio.positions["BTC/USDT"].amount == original_amount
+
+    @pytest.mark.asyncio
+    async def test_stop_loss_failure_preserves_position(self):
+        """If execution fails, the position should remain unchanged."""
+        exec_svc = _make_exec_svc_mock()
+        exec_svc.process_order_requests = AsyncMock(side_effect=RuntimeError("exchange down"))
+
+        portfolio = _make_portfolio()
+        portfolio.positions["BTC/USDT"] = _make_position(
+            current_price=45_000.0, stop_loss_price=46_000.0
+        )
+        original_amount = portfolio.positions["BTC/USDT"].amount
+
+        flow = _build_flow(portfolio=portfolio, execution_service=exec_svc)
+        pos = portfolio.positions["BTC/USDT"]
+        await flow._on_stop_loss_triggered("BTC/USDT", pos, 45_000.0)
+
+        assert "BTC/USDT" in portfolio.positions
+        assert portfolio.positions["BTC/USDT"].amount == original_amount
+
+
+# ---------------------------------------------------------------------------
 # TestUpdatePositionPrices
 # ---------------------------------------------------------------------------
 

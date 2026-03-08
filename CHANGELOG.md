@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Full Simulation toggle** on the dashboard backtest page — checkbox next to the advisory mode selector
 - **39 new unit tests** — `test_simulated_exchange.py` (17 tests), `test_candle_loader.py` (14 tests), `test_simulation_runner.py` (7 tests) covering method coverage, CSV parsing, resampling, circuit-breaker halting, and equity curve correctness
 
+### Fixed
+
+- **SELL orders always failing validation** — `reserve_phase` tentatively removed positions before `execution_phase` could validate them; added `sell_validation_portfolio` parameter to `ExecutionService._validate_order()` scoped to SELL position checks only (BUY balance checks still use the post-reserve portfolio to prevent over-spending)
+- **Duplicate SELL orders per symbol** — multiple strategies could each emit a full-position SELL for the same symbol; added `_dedup_sell_orders()` at the top of `reserve_phase` (the single convergence point for advisory + non-advisory paths) that merges SELLs per symbol to max(amounts) capped at position size
+- **Stop-loss sells failing with "no position to sell"** — removed tentative portfolio reservation from `_on_stop_loss_triggered`; the position now stays in the portfolio until execution fills the order, and is preserved unchanged if execution fails (also resolves the stop-loss rollback issue from the prior review)
+- **`_build_trades` undercounting completed round-trips** — replaced single-buy `dict[str, OrderRecord]` with FIFO lot matching using `deque[_BuyLot]` per symbol; supports partial fills (split buys when sell amount < buy amount, residual stays on queue)
+- **15 new tests** for sell validation, SELL dedup, stop-loss without tentative reservation, and FIFO lot matching with partial fills
+
 ## [0.10.0] — 2026-03-04
 
 ### Added

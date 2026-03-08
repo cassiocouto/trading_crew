@@ -65,3 +65,6 @@ coverage.xml
 
 # docs build
 site/
+
+# historical data
+data/

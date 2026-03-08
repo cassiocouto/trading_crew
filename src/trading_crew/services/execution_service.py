@@ -175,6 +175,7 @@ class ExecutionService:
         self,
         order_requests: list[OrderRequest],
         portfolio: Portfolio,
+        sell_validation_portfolio: Portfolio | None = None,
     ) -> ExecutionResult:
         """Place orders for each risk-approved order request.
 
@@ -207,7 +208,7 @@ class ExecutionService:
         logger.info("Processing %d order request(s)", len(order_requests))
 
         for req in order_requests:
-            await self._process_single_request(req, portfolio, result)
+            await self._process_single_request(req, portfolio, result, sell_validation_portfolio)
 
         logger.info(
             "Order placement complete: placed=%d, filled=%d, failed=%d",
@@ -270,10 +271,11 @@ class ExecutionService:
         req: OrderRequest,
         portfolio: Portfolio,
         result: ExecutionResult,
+        sell_validation_portfolio: Portfolio | None = None,
     ) -> None:
         """Handle one order request through the full placement pipeline."""
         # 1. Validate
-        valid, reason = await self._validate_order(req, portfolio)
+        valid, reason = await self._validate_order(req, portfolio, sell_validation_portfolio)
         if not valid:
             logger.warning(
                 "Order rejected (validation): %s %s %.6f — %s",
@@ -886,12 +888,25 @@ class ExecutionService:
 
     # -- Validation & Precision -----------------------------------------------
 
-    async def _validate_order(self, req: OrderRequest, portfolio: Portfolio) -> tuple[bool, str]:
+    async def _validate_order(
+        self,
+        req: OrderRequest,
+        portfolio: Portfolio,
+        sell_validation_portfolio: Portfolio | None = None,
+    ) -> tuple[bool, str]:
         """Validate an order request against balance and exchange constraints.
 
         For MARKET BUY orders the current ask price is fetched from the exchange
         to estimate cost; if the ticker is unavailable the balance check is
         skipped rather than blocking the order.
+
+        Args:
+            req: The order request to validate.
+            portfolio: Post-reserve portfolio (used for BUY balance checks).
+            sell_validation_portfolio: Pre-reserve portfolio snapshot for SELL
+                position-exists checks.  When provided, SELL validation uses
+                this portfolio (where positions have not been tentatively
+                removed) instead of the main portfolio.
 
         Returns:
             ``(valid, reason)`` — if ``valid`` is False, ``reason`` explains why.
@@ -913,16 +928,17 @@ class ExecutionService:
 
         notional = req.amount * price if price > 0 else 0.0
 
-        # Balance check for BUY orders (collapsed per SIM102)
+        # Balance check for BUY orders — always uses the post-reserve portfolio
         if req.side == OrderSide.BUY and price > 0 and notional > portfolio.balance_quote:
             return (
                 False,
                 f"insufficient balance: need {notional:.4f}, have {portfolio.balance_quote:.4f}",
             )
 
-        # SELL: ensure position exists
+        # SELL: validate against pre-reserve snapshot where position still exists
         if req.side == OrderSide.SELL:
-            pos = portfolio.positions.get(req.symbol)
+            check = sell_validation_portfolio or portfolio
+            pos = check.positions.get(req.symbol)
             if pos is None:
                 return False, f"no position to sell for {req.symbol}"
             if req.amount > pos.amount:

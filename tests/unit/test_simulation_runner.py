@@ -144,6 +144,242 @@ class TestComputeMetrics:
         assert result["final_balance"] == 10000.0
 
 
+class TestBuildTradesFIFO:
+    """Tests for FIFO lot matching in _build_trades."""
+
+    def _setup_db_with_orders(self, orders_data: list[dict]) -> tuple:
+        """Create an in-memory DB and insert order records."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+
+        from trading_crew.db.models import OrderRecord
+        from trading_crew.db.session import get_session, init_db
+        from trading_crew.services.database_service import DatabaseService
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        init_db(engine)
+        db_service = DatabaseService(engine)
+
+        with get_session(engine) as session:
+            for data in orders_data:
+                record = OrderRecord(**data)
+                session.add(record)
+            session.commit()
+
+        return db_service
+
+    def test_multiple_buys_one_sell_pairs_fifo(self) -> None:
+        """Two buys for the same symbol, one sell: FIFO matches the first buy."""
+        candles = _make_candles(50)
+        orders = [
+            {
+                "exchange_order_id": "buy-1",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "buy",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.5,
+                "filled_amount": 0.5,
+                "average_fill_price": 100.0,
+                "total_fee": 0.05,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 0, tzinfo=UTC),
+            },
+            {
+                "exchange_order_id": "buy-2",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "buy",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.3,
+                "filled_amount": 0.3,
+                "average_fill_price": 110.0,
+                "total_fee": 0.033,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 2, tzinfo=UTC),
+            },
+            {
+                "exchange_order_id": "sell-1",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "sell",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.5,
+                "filled_amount": 0.5,
+                "average_fill_price": 120.0,
+                "total_fee": 0.06,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 5, tzinfo=UTC),
+            },
+        ]
+        db_service = self._setup_db_with_orders(orders)
+        settings = _make_settings()
+        runner = SimulationRunner(strategies=[_make_strategy()], settings=settings)
+
+        trades = runner._build_trades(db_service, "BTC/USDT", candles)
+
+        assert len(trades) == 1
+        assert trades[0].entry_price == 100.0  # FIFO: first buy
+        assert trades[0].exit_price == 120.0
+        assert trades[0].amount == 0.5
+
+    def test_partial_fill_creates_residual(self) -> None:
+        """Buy 1.0, sell 0.6 => trade for 0.6, residual 0.4 remains in queue."""
+        candles = _make_candles(50)
+        orders = [
+            {
+                "exchange_order_id": "buy-1",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "buy",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 1.0,
+                "filled_amount": 1.0,
+                "average_fill_price": 100.0,
+                "total_fee": 0.1,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 0, tzinfo=UTC),
+            },
+            {
+                "exchange_order_id": "sell-1",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "sell",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.6,
+                "filled_amount": 0.6,
+                "average_fill_price": 120.0,
+                "total_fee": 0.072,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 5, tzinfo=UTC),
+            },
+            {
+                "exchange_order_id": "sell-2",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "sell",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.4,
+                "filled_amount": 0.4,
+                "average_fill_price": 115.0,
+                "total_fee": 0.046,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 10, tzinfo=UTC),
+            },
+        ]
+        db_service = self._setup_db_with_orders(orders)
+        settings = _make_settings()
+        runner = SimulationRunner(strategies=[_make_strategy()], settings=settings)
+
+        trades = runner._build_trades(db_service, "BTC/USDT", candles)
+
+        assert len(trades) == 2
+        assert trades[0].amount == pytest.approx(0.6)
+        assert trades[0].entry_price == 100.0
+        assert trades[0].exit_price == 120.0
+        assert trades[1].amount == pytest.approx(0.4)
+        assert trades[1].entry_price == 100.0
+        assert trades[1].exit_price == 115.0
+
+    def test_sell_spans_multiple_buys(self) -> None:
+        """One large sell consumes multiple buy lots."""
+        candles = _make_candles(50)
+        orders = [
+            {
+                "exchange_order_id": "buy-1",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "buy",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.3,
+                "filled_amount": 0.3,
+                "average_fill_price": 100.0,
+                "total_fee": 0.03,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 0, tzinfo=UTC),
+            },
+            {
+                "exchange_order_id": "buy-2",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "buy",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.5,
+                "filled_amount": 0.5,
+                "average_fill_price": 110.0,
+                "total_fee": 0.055,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 2, tzinfo=UTC),
+            },
+            {
+                "exchange_order_id": "sell-1",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "sell",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.8,
+                "filled_amount": 0.8,
+                "average_fill_price": 120.0,
+                "total_fee": 0.096,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 5, tzinfo=UTC),
+            },
+        ]
+        db_service = self._setup_db_with_orders(orders)
+        settings = _make_settings()
+        runner = SimulationRunner(strategies=[_make_strategy()], settings=settings)
+
+        trades = runner._build_trades(db_service, "BTC/USDT", candles)
+
+        assert len(trades) == 2
+        # First trade: entire first lot (0.3 @ 100)
+        assert trades[0].amount == pytest.approx(0.3)
+        assert trades[0].entry_price == 100.0
+        # Second trade: partial second lot (0.5 @ 110)
+        assert trades[1].amount == pytest.approx(0.5)
+        assert trades[1].entry_price == 110.0
+
+    def test_no_buy_orders_produces_no_trades(self) -> None:
+        """Sell without any preceding buys produces no trades."""
+        candles = _make_candles(50)
+        orders = [
+            {
+                "exchange_order_id": "sell-1",
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "side": "sell",
+                "order_type": "market",
+                "status": "filled",
+                "requested_amount": 0.5,
+                "filled_amount": 0.5,
+                "average_fill_price": 120.0,
+                "total_fee": 0.06,
+                "strategy_name": "strat_a",
+                "created_at": datetime(2024, 1, 1, 5, tzinfo=UTC),
+            },
+        ]
+        db_service = self._setup_db_with_orders(orders)
+        settings = _make_settings()
+        runner = SimulationRunner(strategies=[_make_strategy()], settings=settings)
+
+        trades = runner._build_trades(db_service, "BTC/USDT", candles)
+
+        assert len(trades) == 0
+
+
 class TestSimulationRunnerInit:
     def test_too_few_candles_raises(self) -> None:
         settings = _make_settings()

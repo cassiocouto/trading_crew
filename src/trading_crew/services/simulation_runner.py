@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
@@ -44,6 +45,18 @@ if TYPE_CHECKING:
     from trading_crew.strategies.base import BaseStrategy
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _BuyLot:
+    """Mutable record for an open buy lot in the FIFO matching queue."""
+
+    amount: float
+    price: float
+    fee: float
+    strategy_name: str
+    created_at: datetime | None
+
 
 _TIMEFRAME_SECONDS: dict[str, int] = {
     "1m": 60,
@@ -299,7 +312,14 @@ class SimulationRunner:
     def _build_trades(
         self, db_service: DatabaseService, symbol: str, candles: list[OHLCV]
     ) -> list[BacktestTrade]:
-        """Reconstruct trade list from DB order records."""
+        """Reconstruct trade list from DB order records using FIFO lot matching.
+
+        Maintains a deque of open buy lots per symbol.  Each sell consumes
+        lots from the front of the queue; if a sell partially consumes a lot,
+        the residual is pushed back to the front for the next sell.
+        """
+        from collections import deque
+
         from trading_crew.db.models import OrderRecord
         from trading_crew.db.session import get_session
 
@@ -329,40 +349,63 @@ class SimulationRunner:
                 .all()
             )
 
-            buy_orders: dict[str, OrderRecord] = {}
+            buy_lots: dict[str, deque[_BuyLot]] = {}
             for order in orders:
                 if order.side == "buy":
-                    buy_orders[order.symbol] = order
-                elif order.side == "sell" and order.symbol in buy_orders:
-                    buy_order = buy_orders.pop(order.symbol)
-                    entry_price = buy_order.average_fill_price or 0.0
+                    lot = _BuyLot(
+                        amount=order.filled_amount or 0.0,
+                        price=order.average_fill_price or 0.0,
+                        fee=order.total_fee or 0.0,
+                        strategy_name=order.strategy_name or "",
+                        created_at=order.created_at,
+                    )
+                    buy_lots.setdefault(order.symbol, deque()).append(lot)
+                elif order.side == "sell":
+                    queue = buy_lots.get(order.symbol)
+                    if not queue:
+                        continue
+                    remaining_sell = order.filled_amount or 0.0
                     exit_price = order.average_fill_price or 0.0
-                    amount = buy_order.filled_amount or 0.0
-                    entry_fee = buy_order.total_fee or 0.0
-                    exit_fee = order.total_fee or 0.0
-                    pnl = (exit_price - entry_price) * amount - entry_fee - exit_fee
+                    total_exit_fee = order.total_fee or 0.0
 
                     exit_reason = "sell_signal"
                     if order.strategy_name == "end_of_data":
                         exit_reason = "end_of_data"
 
-                    trades.append(
-                        BacktestTrade(
-                            symbol=order.symbol,
-                            side="buy",
-                            strategy_name=buy_order.strategy_name or "",
-                            entry_bar=_nearest_bar(buy_order.created_at),
-                            exit_bar=_nearest_bar(order.created_at),
-                            entry_price=entry_price,
-                            exit_price=exit_price,
-                            amount=amount,
-                            pnl=pnl,
-                            fee=entry_fee + exit_fee,
-                            exit_reason=exit_reason,
-                            opened_at=buy_order.created_at,
-                            closed_at=order.created_at,
+                    while remaining_sell > 1e-10 and queue:
+                        lot = queue[0]
+                        matched = min(lot.amount, remaining_sell)
+                        fraction = matched / (order.filled_amount or 1.0)
+                        exit_fee_share = total_exit_fee * fraction
+                        entry_fee_share = (
+                            lot.fee * (matched / lot.amount) if lot.amount > 0 else 0.0
                         )
-                    )
+                        pnl = (exit_price - lot.price) * matched - entry_fee_share - exit_fee_share
+
+                        trades.append(
+                            BacktestTrade(
+                                symbol=order.symbol,
+                                side="buy",
+                                strategy_name=lot.strategy_name,
+                                entry_bar=_nearest_bar(lot.created_at),
+                                exit_bar=_nearest_bar(order.created_at),
+                                entry_price=lot.price,
+                                exit_price=exit_price,
+                                amount=matched,
+                                pnl=pnl,
+                                fee=entry_fee_share + exit_fee_share,
+                                exit_reason=exit_reason,
+                                opened_at=lot.created_at,
+                                closed_at=order.created_at,
+                            )
+                        )
+
+                        remaining_sell -= matched
+                        if matched >= lot.amount - 1e-10:
+                            queue.popleft()
+                        else:
+                            lot.amount -= matched
+                            lot.fee -= entry_fee_share
         return trades
 
     @staticmethod

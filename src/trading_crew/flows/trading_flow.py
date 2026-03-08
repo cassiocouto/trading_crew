@@ -297,6 +297,7 @@ class TradingFlow(Flow[CycleState]):
     @listen(or_("skip_advisory", advisory_phase))
     async def reserve_phase(self) -> None:
         """Apply tentative portfolio reservations from final order requests."""
+        self.state.order_requests = _dedup_sell_orders(self.state.order_requests, self._portfolio)
         self._portfolio_snapshot = self._portfolio.model_copy(deep=True)
         for req in self.state.order_requests:
             _apply_single_order_to_portfolio(self._portfolio, req)
@@ -342,7 +343,9 @@ class TradingFlow(Flow[CycleState]):
         logger.info("Running execution pipeline...")
         try:
             exec_result = await self._execution_service.process_order_requests(
-                self.state.order_requests, self._portfolio
+                self.state.order_requests,
+                self._portfolio,
+                sell_validation_portfolio=self._portfolio_snapshot,
             )
             poll_result = await self._execution_service.poll_and_reconcile(self._portfolio)
 
@@ -477,8 +480,9 @@ class TradingFlow(Flow[CycleState]):
             price=current_price,
             strategy_name=pos.strategy_name or "stop_loss",
         )
-        snapshot = self._portfolio.model_copy(deep=True)
-        _apply_single_order_to_portfolio(self._portfolio, req)
+        # No tentative reservation — the position stays in the portfolio so
+        # that execution_service._validate_order can verify it exists.
+        # If execution fails, the position is preserved unchanged.
         try:
             sl_result = await self._execution_service.process_order_requests([req], self._portfolio)
             self.state.orders = list(self.state.orders) + sl_result.placed
@@ -487,12 +491,7 @@ class TradingFlow(Flow[CycleState]):
                 f.as_dict() for f in sl_result.failed
             ]
         except Exception:
-            logger.exception(
-                "Stop-loss order placement failed for %s — rolling back portfolio", symbol
-            )
-            self._portfolio.balance_quote = snapshot.balance_quote
-            self._portfolio.positions = snapshot.positions
-            self._portfolio.peak_balance = snapshot.peak_balance
+            logger.exception("Stop-loss order placement failed for %s — position preserved", symbol)
         self._notif.notify_error(
             f"Stop-loss triggered for {symbol} @ {current_price:.4f} "
             f"(stop={pos.stop_loss_price:.4f}). SELL order submitted."
@@ -584,3 +583,53 @@ def _rollback_portfolio(
     from trading_crew.main import _rollback_portfolio as _rollback
 
     _rollback(portfolio, snapshot, state)
+
+
+def _dedup_sell_orders(
+    order_requests: list[OrderRequest], portfolio: Portfolio
+) -> list[OrderRequest]:
+    """Merge duplicate SELL orders per symbol, keeping the largest amount capped at position size.
+
+    Multiple strategies can each emit a SELL for the same symbol. This
+    consolidates them into a single order per symbol whose amount is the
+    maximum requested amount, bounded by the held position size.
+
+    BUY orders are passed through unchanged.
+    """
+    buys: list[OrderRequest] = []
+    sell_best: dict[str, OrderRequest] = {}
+
+    for req in order_requests:
+        if req.side != "sell":
+            buys.append(req)
+            continue
+        existing = sell_best.get(req.symbol)
+        if existing is None or req.amount > existing.amount:
+            sell_best[req.symbol] = req
+
+    deduped_sells: list[OrderRequest] = []
+    for symbol, req in sell_best.items():
+        pos = portfolio.positions.get(symbol)
+        if pos is None:
+            deduped_sells.append(req)
+            continue
+        capped_amount = min(req.amount, pos.amount)
+        if capped_amount != req.amount:
+            logger.info(
+                "SELL dedup: capping %s from %.6f to position size %.6f",
+                symbol,
+                req.amount,
+                pos.amount,
+            )
+            req = req.model_copy(update={"amount": capped_amount})
+        deduped_sells.append(req)
+
+    merged_count = len(order_requests) - len(buys) - len(deduped_sells)
+    if merged_count > 0:
+        logger.info(
+            "SELL dedup: merged %d duplicate SELL order(s) across %d symbol(s)",
+            merged_count,
+            len(sell_best),
+        )
+
+    return buys + deduped_sells
