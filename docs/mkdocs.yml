@@ -2,8 +2,8 @@ site_name: Trading Crew
 site_description: Multi-agent crypto trading system powered by CrewAI
 site_url: https://your-org.github.io/trading-crew
 
-repo_url: https://github.com/your-org/trading-crew
-repo_name: trading-crew
+repo_url: https://github.com/cassiocouto/trading_crew
+repo_name: trading_crew
 
 theme:
   name: material

@@ -109,10 +109,10 @@ endif
 # ---------------------------------------------------------------------------
 
 docs:  ## Build documentation site
-	uv run mkdocs build
+	uv run mkdocs build -f docs/mkdocs.yml
 
 docs-serve:  ## Serve docs locally with hot reload
-	uv run mkdocs serve
+	uv run mkdocs serve -f docs/mkdocs.yml
 
 # ---------------------------------------------------------------------------
 # Housekeeping

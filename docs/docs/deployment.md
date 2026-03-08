@@ -3,7 +3,7 @@
 Guide for running Trading Crew in production.
 
 !!! warning
-    Read the [Disclaimer](../../DISCLAIMER.md) before running in live mode.
+    Read the [Disclaimer](https://github.com/cassiocouto/trading_crew/blob/main/DISCLAIMER.md) before running in live mode.
     You are solely responsible for any financial losses.
 
 ## Paper Trading (Recommended Start)

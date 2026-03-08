@@ -24,6 +24,6 @@ review of the pipeline output.
 
 - [Getting Started](getting-started.md) — Install and run in 5 minutes
 - [Configuration](configuration.md) — All settings explained
-- [Architecture](../../ARCHITECTURE.md) — System design, advisory activation, and budget policy
+- [Architecture](https://github.com/cassiocouto/trading_crew/blob/main/ARCHITECTURE.md) — System design, advisory activation, and budget policy
 - [Writing a Strategy](writing-a-strategy.md) — Contribute your own strategy
 - [Deployment](deployment.md) — Run in production
