@@ -1,4 +1,4 @@
-.PHONY: install dev init settings-init lint type-check test test-unit test-integration backtest backtest-run backtest-data test-cov format pre-commit docs docs-serve db-migrate db-upgrade db-downgrade clean dashboard-install dashboard-api dashboard-ui docker-build docker-up docker-down help
+.PHONY: install dev init settings-init lint type-check test test-unit test-integration backtest backtest-run backtest-data test-cov format pre-commit docs docs-serve db-migrate db-upgrade db-downgrade clean start start-live dashboard-install dashboard-api dashboard-ui docker-build docker-up docker-down help
 
 # ---------------------------------------------------------------------------
 # Cross-platform date helpers (Python works on Windows, macOS, and Linux)
@@ -109,20 +109,26 @@ db-downgrade:  ## Roll back last migration
 # Running
 # ---------------------------------------------------------------------------
 
+start:  ## Start bot + API + dashboard UI together in paper mode (color-coded output)
+	uv run python scripts/start_all.py --mode paper
+
+start-live:  ## Start bot + API + dashboard UI together in LIVE mode — REAL ORDERS!
+	uv run python scripts/start_all.py --mode live
+
 ifeq ($(OS),Windows_NT)
-paper-trade:  ## Start in paper-trading mode (overrides settings.yaml trading_mode)
+paper-trade:  ## Start trading bot only in paper mode (overrides settings.yaml trading_mode)
 	set "TRADING_MODE=paper" && uv run trading-crew
 
-live-trade:  ## Start in live-trading mode — REAL ORDERS (overrides settings.yaml trading_mode)
+live-trade:  ## Start trading bot only in LIVE mode — REAL ORDERS (overrides settings.yaml)
 	@echo WARNING: This will place REAL orders on your exchange.
 	@echo Press Ctrl+C within 5 seconds to cancel...
 	@python -c "import time; time.sleep(5)"
 	set "TRADING_MODE=live" && uv run trading-crew
 else
-paper-trade:  ## Start in paper-trading mode (overrides settings.yaml trading_mode)
+paper-trade:  ## Start trading bot only in paper mode (overrides settings.yaml trading_mode)
 	TRADING_MODE=paper uv run trading-crew
 
-live-trade:  ## Start in live-trading mode — REAL ORDERS (overrides settings.yaml trading_mode)
+live-trade:  ## Start trading bot only in LIVE mode — REAL ORDERS (overrides settings.yaml)
 	@echo "WARNING: This will place REAL orders on your exchange."
 	@echo "Press Ctrl+C within 5 seconds to cancel..."
 	@sleep 5
