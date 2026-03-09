@@ -80,17 +80,18 @@ def get_ohlcv(
             .scalars()
             .all()
         )
+        # Build response objects while the session is still open so that
+        # accessing ORM attributes doesn't trigger a DetachedInstanceError.
+        bars = [
+            OHLCVBar(
+                timestamp=int(row.timestamp.timestamp()),
+                open=row.open,
+                high=row.high,
+                low=row.low,
+                close=row.close,
+                volume=row.volume,
+            )
+            for row in reversed(rows)
+        ]
 
-    # Reverse so oldest bar is first (chart expects chronological order)
-    bars = list(reversed(rows))
-    return [
-        OHLCVBar(
-            timestamp=int(row.timestamp.timestamp()),
-            open=row.open,
-            high=row.high,
-            low=row.low,
-            close=row.close,
-            volume=row.volume,
-        )
-        for row in bars
-    ]
+    return bars
