@@ -3,13 +3,19 @@
 import type {
   AgentStatusResponse,
   BacktestResultResponse,
+  ControlsResponse,
+  ControlsUpdate,
   CycleResponse,
   FailedOrderResponse,
+  OHLCVBar,
   OrderResponse,
   PnLPointResponse,
   PortfolioResponse,
+  SettingsResponse,
+  SettingsUpdate,
   SignalResponse,
   StrategyStatsResponse,
+  SymbolTickerResponse,
   SystemStatusResponse,
 } from "@/types";
 
@@ -38,6 +44,32 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`API error ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`API error ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 export const api = {
   getPortfolio: () => get<PortfolioResponse>("/api/portfolio/"),
   getPnlHistory: (limit = 100) => get<PnLPointResponse[]>("/api/portfolio/history", { limit }),
@@ -56,6 +88,19 @@ export const api = {
 
   getSystemStatus: () => get<SystemStatusResponse>("/api/system/status"),
   getAgents: () => get<AgentStatusResponse[]>("/api/agents/"),
+
+  // Settings
+  getSettings: () => get<SettingsResponse>("/api/settings/"),
+  updateSettings: (data: SettingsUpdate) => put<SettingsResponse>("/api/settings/", data),
+
+  // Controls
+  getControls: () => get<ControlsResponse>("/api/controls/"),
+  updateControls: (data: ControlsUpdate) => patch<ControlsResponse>("/api/controls/", data),
+
+  // Market
+  getMarketSymbols: () => get<SymbolTickerResponse[]>("/api/market/symbols"),
+  getMarketOHLCV: (symbol: string, timeframe = "1h", limit = 120) =>
+    get<OHLCVBar[]>("/api/market/ohlcv", { symbol, timeframe, limit }),
 
   runBacktest: (req: {
     symbol: string;

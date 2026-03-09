@@ -1,0 +1,113 @@
+# =============================================================================
+# Trading Crew — Non-Secret Application Settings (TEMPLATE)
+# =============================================================================
+# Copy this file to settings.yaml and edit as needed:
+#   cp settings.yaml.example settings.yaml
+#
+# settings.yaml is listed in .gitignore — your edits will not appear as
+# uncommitted changes.  settings.yaml.example is version-controlled and serves
+# as the canonical reference for all available settings.
+#
+# Secrets (API keys, tokens, database URL) must be set in .env and are NEVER
+# written to this file.
+#
+# Priority order: environment variables > .env > settings.yaml > code defaults.
+# Most changes here require a bot restart to take effect.
+# Use the Controls page in the dashboard for live execution/advisory toggles.
+# =============================================================================
+
+# --- Trading Mode ------------------------------------------------------------
+trading_mode: "paper"
+
+# --- Exchange ----------------------------------------------------------------
+exchange_id: "binance"
+exchange_sandbox: false
+exchange_rate_limit_threshold: 5
+exchange_rate_limit_cooldown_seconds: 60
+
+# --- Symbols to trade --------------------------------------------------------
+symbols:
+  - "BTC/USDT"
+default_timeframe: "1h"
+
+# --- Scheduling --------------------------------------------------------------
+loop_interval_seconds: 900
+execution_poll_interval_seconds: 900
+stale_order_cancel_minutes: 10
+stale_partial_fill_cancel_minutes: 360
+
+# --- Strategy ----------------------------------------------------------------
+ensemble_enabled: true
+ensemble_agreement_threshold: 0.5
+stop_loss_method: "fixed"
+atr_stop_multiplier: 2.0
+initial_balance_quote: 10000.0
+
+# --- Position Guards ---------------------------------------------------------
+anti_averaging_down: true
+sell_guard_mode: "break_even"
+
+# --- Risk Parameters ---------------------------------------------------------
+risk:
+  max_position_size_pct: 10.0
+  max_portfolio_exposure_pct: 80.0
+  max_drawdown_pct: 15.0
+  default_stop_loss_pct: 3.0
+  risk_per_trade_pct: 2.0
+  min_confidence: 0.5
+  cooldown_after_loss_seconds: 300
+  min_profit_margin_pct: 0.0
+
+# --- Live Wallet Sync (live mode only) ---------------------------------------
+balance_sync_interval_seconds: 300
+balance_drift_alert_threshold_pct: 1.0
+
+# --- Market Intelligence Pipeline --------------------------------------------
+market_data_candle_limit: 120
+market_regime_volatility_threshold: 0.03
+market_regime_trend_threshold: 0.01
+
+# --- Sentiment (optional) ----------------------------------------------------
+sentiment_enabled: false
+sentiment_fear_greed_enabled: true
+sentiment_fear_greed_weight: 1.0
+sentiment_request_timeout_seconds: 5
+
+# --- Advisory Gate -----------------------------------------------------------
+advisory_enabled: true
+advisory_activation_threshold: 0.6
+advisory_estimated_tokens: 4000
+
+# --- Uncertainty Score Weights -----------------------------------------------
+uncertainty_weight_volatile_regime: 0.3
+uncertainty_weight_sentiment_extreme: 0.2
+uncertainty_weight_low_sentiment_confidence: 0.2
+uncertainty_weight_strategy_disagreement: 0.3
+uncertainty_weight_drawdown_proximity: 0.2
+uncertainty_weight_regime_change: 0.3
+
+# --- Daily Token Budget Guard ------------------------------------------------
+daily_token_budget_enabled: true
+daily_token_budget_tokens: 600000
+token_budget_degrade_mode: "normal"
+
+# --- Flow Orchestration ------------------------------------------------------
+save_cycle_history: true
+stop_loss_monitoring_enabled: true
+
+# --- Dashboard ---------------------------------------------------------------
+dashboard_enabled: true
+dashboard_host: "0.0.0.0"
+dashboard_port: 8000
+dashboard_cors_origins:
+  - "http://localhost:3000"
+dashboard_ws_poll_interval_seconds: 3
+
+# --- Telegram Alert Level ----------------------------------------------------
+telegram_notify_level: "trades_only"
+
+# --- CrewAI Verbosity --------------------------------------------------------
+crewai_verbose: false
+
+# --- Logging -----------------------------------------------------------------
+log_level: "INFO"

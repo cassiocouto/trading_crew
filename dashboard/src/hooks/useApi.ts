@@ -1,7 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { ControlsUpdate, SettingsUpdate } from "@/types";
 
 const STALE = 30_000; // 30 seconds
 
@@ -34,3 +35,58 @@ export const useSystemStatus = () =>
 
 export const useAgents = () =>
   useQuery({ queryKey: ["agents"], queryFn: api.getAgents, staleTime: STALE });
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+export const useSettings = () =>
+  useQuery({ queryKey: ["settings"], queryFn: api.getSettings, staleTime: 60_000 });
+
+export const useUpdateSettings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: SettingsUpdate) => api.updateSettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+
+export const useControls = () =>
+  useQuery({
+    queryKey: ["controls"],
+    queryFn: api.getControls,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  });
+
+export const useUpdateControls = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ControlsUpdate) => api.updateControls(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["controls"] });
+    },
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Market data
+// ---------------------------------------------------------------------------
+
+export const useMarketSymbols = () =>
+  useQuery({ queryKey: ["market-symbols"], queryFn: api.getMarketSymbols, staleTime: 30_000 });
+
+export const useMarketOHLCV = (symbol: string, timeframe = "1h", limit = 120) =>
+  useQuery({
+    queryKey: ["market-ohlcv", symbol, timeframe, limit],
+    queryFn: () => api.getMarketOHLCV(symbol, timeframe, limit),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    enabled: Boolean(symbol),
+  });

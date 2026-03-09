@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dashboard Settings page** (`/settings`) — grouped web form to view and edit all non-secret settings; changes are written to `settings.yaml` atomically and the API cache is busted immediately; fields are validated against Pydantic-defined enum literals before persistence
+- **Dashboard Markets page** (`/markets`) — candlestick chart with volume histogram for each tracked symbol via `lightweight-charts` v5; symbol tabs, 1H/4H/1D timeframe selector, and 60s auto-refresh; data sourced from the local `ohlcv` database table
+- **Dashboard Controls page** (`/controls`) — live toggle cards for the execution agent and advisory crew; advisory toggle is disabled and shows an explanation when no LLM API key is configured; confirmation dialog guards against accidental execution pause
+- **`settings.yaml` config layer** — non-secret settings moved from `.env` to `src/trading_crew/config/settings.yaml`; loaded as a third priority source (env vars > `.env` > YAML > defaults) via `YamlConfigSettingsSource`; `settings.yaml` is gitignored; `settings.yaml.example` is the version-controlled template
+- **`runtime.yaml` control flags** — `execution_paused` and `advisory_paused` flags live in `config/runtime.yaml` (gitignored); the trading bot re-reads this file at the start of each cycle so toggles take effect without a restart
+- **`config/runtime_flags.py`** — atomic reader/writer for `runtime.yaml` using `os.replace()` + threading lock; bootstraps the file with safe defaults if missing
+- **`advisory_llm_configured` property on `Settings`** — returns `True` when `OPENAI_API_KEY` is set to a non-placeholder value; used by the Controls API to gate advisory unpause and by `main.py` to decide whether to initialize the advisory crew
+- **`GET/PUT /api/settings/`** — read and write non-secret settings; dashboard-infrastructure fields (`dashboard_host`, `dashboard_port`, etc.) are intentionally excluded from the write path to prevent self-bricking
+- **`GET/PATCH /api/controls/`** — read and write runtime control flags; broadcasts `controls_updated` WebSocket event to all connected tabs on change; rejects advisory unpause when `advisory_llm_configured` is false
+- **`GET /api/market/ohlcv`** and **`GET /api/market/symbols`** — OHLCV candle endpoint (with symbol, timeframe, limit params) and symbol ticker endpoint sourcing data from the local database
+- **`clear_settings_cache()`** helper — invalidates the `lru_cache` on `get_settings()` after a dashboard settings write so the API reflects new values immediately
+- **`.env.example` cleanup** — `.env.example` now contains only true secrets; all non-secret defaults moved to `settings.yaml.example`
+
+### Changed
+
+- `.env.example` reduced to secrets only: `EXCHANGE_API_KEY`, `EXCHANGE_API_SECRET`, `OPENAI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DATABASE_URL`, `DASHBOARD_API_KEY`
+- Dashboard navigation updated with icons (lucide-react) and three new entries: Markets, Controls, Settings
+- `SettingsUpdate` API schema uses `Literal` types for enum fields (trading_mode, stop_loss_method, sell_guard_mode, etc.) so invalid values are rejected by Pydantic before reaching disk; `risk` field uses a typed `RiskParamsUpdate` model instead of `dict[str, Any]`
+
 - **Full simulation backtest** — new `SimulationRunner` runs the real `TradingFlow` per historical candle against a `SimulatedExchangeService` and in-memory SQLite database; produces the same `BacktestResult` format as the legacy `BacktestService`; includes circuit-breaker halting, break-even sell guards, anti-averaging-down, and all DB-dependent guards
 - **`SimulatedExchangeService`** (`services/simulated_exchange.py`) — drop-in mock of `ExchangeService` implementing all 12 async methods + 2 properties; replays preloaded candles, simulates immediate order fills at close +/- slippage; single-symbol scope with `ValueError` on unknown symbols
 - **`candle_loader.load_candles_csv()`** (`services/candle_loader.py`) — parses Binance kline CSV files (headerless or with header) into `list[OHLCV]`; supports `start`/`end` date filtering, `max_bars` truncation, and OHLCV-correct resampling to larger timeframes (e.g. 1m → 1h)

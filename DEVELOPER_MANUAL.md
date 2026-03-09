@@ -1,4 +1,4 @@
-# Trading Crew — Developer Manual
+﻿# Trading Crew — Developer Manual
 
 This manual is for developers who want to understand the internals of Trading Crew, extend it with new strategies or tools, contribute to the project, or deploy it in a production environment. If you just want to run the bot, see [USER_MANUAL.md](USER_MANUAL.md) instead.
 
@@ -713,19 +713,66 @@ result = await asyncio.to_thread(my_sync_function, arg1, arg2)
 
 ## 14. Configuration Internals
 
-Configuration is managed by `config/settings.py` using `pydantic-settings`. All settings are read from environment variables at startup. Nested settings (like risk parameters) use a double-underscore prefix:
+### Two-layer configuration model
+
+Configuration is split into two layers:
+
+| Layer | File | Contents | Version-controlled? |
+|-------|------|----------|---------------------|
+| **Secrets** | `.env` | API keys, tokens, `DATABASE_URL`, `DASHBOARD_API_KEY` | No (gitignored) |
+| **Non-secret settings** | `settings.yaml` | All other configuration | No (gitignored) |
+
+`settings.yaml.example` is the version-controlled template. Copy it to create `settings.yaml`:
+
+```bash
+cp src/trading_crew/config/settings.yaml.example src/trading_crew/config/settings.yaml
+```
+
+### Priority order (highest wins)
+
+```
+environment variables  >  .env file  >  settings.yaml  >  code defaults
+```
+
+This means any setting in `.env` or an environment variable overrides the `settings.yaml` value — useful for container deployments where you inject configuration via environment.
+
+### Nested settings
+
+Risk parameters use the double-underscore prefix when set via env vars:
 
 ```env
 RISK__MAX_DRAWDOWN_PCT=10
 RISK__DEFAULT_STOP_LOSS_PCT=2
 ```
 
-To add a new setting:
+The same values can be set in `settings.yaml` using nested YAML:
 
-1. Add a field to the relevant `Settings` class or nested model in `config/settings.py`
-2. Add a default value (never leave a required field without a sane default)
-3. Document it in `.env.example` with a comment
-4. Update `docs/docs/configuration.md`
+```yaml
+risk:
+  max_drawdown_pct: 10
+  default_stop_loss_pct: 2
+```
+
+### Runtime control flags
+
+Two special flags live in `config/runtime.yaml` (also gitignored):
+
+| Flag | Effect |
+|------|--------|
+| `execution_paused: true` | Bot skips the execution phase each cycle — no orders placed |
+| `advisory_paused: true` | Advisory crew is bypassed regardless of uncertainty score |
+
+The bot re-reads `runtime.yaml` at the start of each cycle, so changes take effect within one cycle interval without a restart. The dashboard Controls page writes to this file via `PATCH /api/controls`.
+
+`runtime.yaml` is created automatically with safe defaults if missing.
+
+### Adding a new setting
+
+1. Add a field to `Settings` (or `RiskParams`) in `config/settings.py`
+2. Add a default value — never leave a required field without a sane default
+3. Add the field to `settings.yaml.example` with a comment
+4. If the field is non-secret and dashboard-editable, add it to `SettingsResponse` and `SettingsUpdate` in `api/schemas.py`
+5. Update `docs/docs/configuration.md`
 
 ```python
 # In settings.py
@@ -734,6 +781,14 @@ class Settings(BaseSettings):
 ```
 
 Access it anywhere via `get_settings().my_new_setting`.
+
+### Cache invalidation
+
+`get_settings()` is cached with `@lru_cache`. The `PUT /api/settings` endpoint calls `clear_settings_cache()` after writing `settings.yaml` so the API process picks up the new values immediately. The trading bot process uses its startup-cached copy until it restarts.
+
+### Advisory crew LLM key guard
+
+`settings.advisory_llm_configured` returns `True` when `OPENAI_API_KEY` is set to a non-placeholder value. The advisory crew is disabled at startup and cannot be unpaused via the Controls page when this returns `False`.
 
 ---
 
@@ -831,6 +886,11 @@ git push origin v0.9.0
 | Add a new CrewAI agent | `agents/` → create factory, add agent to the relevant crew in `crews/` |
 | Add a risk check | `risk/` → implement check, wire it into `services/risk_pipeline.py` |
 | Add a custom sell guard | `risk/sell_guard.py` → subclass `SellGuard`, implement `evaluate()`, pass to `RiskPipeline(sell_guard=...)` in `main.py` |
+| Add a new API endpoint | `api/routers/` → add router, register in `api/app.py` |
+| Add a WebSocket event | `api/websocket.py` + `api/schemas.py` + `useWebSocket.ts` frontend handler |
+| Add a new database table | `db/models.py` → define ORM model, `make db-migrate msg="..."` |
+| Add a new notification channel | `services/notification_service.py` → add backend, call in relevant hooks |
+| Add a configuration option | `config/settings.py` + `settings.yaml.example` + `api/schemas.py` (SettingsResponse/Update) |
 
 ### Adding a custom sell guard
 

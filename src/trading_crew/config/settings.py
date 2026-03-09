@@ -2,10 +2,11 @@
 
 Configuration is loaded in this priority order (highest wins):
   1. Environment variables (or .env file)
-  2. Defaults defined here
+  2. settings.yaml  (non-secret, dashboard-editable)
+  3. Defaults defined here
 
 All secrets (API keys, tokens) come from the environment — never from
-checked-in files.
+checked-in files.  settings.yaml is for non-secret, configurable values.
 """
 
 from __future__ import annotations
@@ -15,11 +16,28 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 from trading_crew.models.risk import RiskParams
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+_SETTINGS_YAML = PROJECT_ROOT / "src" / "trading_crew" / "config" / "settings.yaml"
+
+# Known placeholder values that indicate the key is not actually configured.
+_LLM_KEY_PLACEHOLDERS = frozenset(
+    {
+        "",
+        "your-openai-key-here",
+        "sk-placeholder",
+        "your-api-key-here",
+    }
+)
 
 
 class TradingMode(StrEnum):
@@ -61,8 +79,9 @@ class SellGuardMode(StrEnum):
 class Settings(BaseSettings):
     """Central application configuration.
 
-    Values are read from environment variables. A ``.env`` file in the project
-    root is loaded automatically.
+    Values are read in priority order: env vars / .env > settings.yaml > defaults.
+    Secrets (API keys, tokens) must always come from env vars or .env — they are
+    never written to settings.yaml.
     """
 
     model_config = SettingsConfigDict(
@@ -70,7 +89,27 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        yaml_file=str(_SETTINGS_YAML),
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Load from env vars / .env first, then settings.yaml, then defaults."""
+        yaml_source = YamlConfigSettingsSource(settings_cls)
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            yaml_source,
+            file_secret_settings,
+        )
 
     # -- Trading mode ---------------------------------------------------------
     trading_mode: TradingMode = TradingMode.PAPER
@@ -250,8 +289,23 @@ class Settings(BaseSettings):
         """Whether Telegram notifications are configured."""
         return bool(self.telegram_bot_token and self.telegram_chat_id)
 
+    @property
+    def advisory_llm_configured(self) -> bool:
+        """Whether a usable LLM API key is configured for the advisory crew."""
+        return self.openai_api_key.strip() not in _LLM_KEY_PLACEHOLDERS
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return the cached singleton Settings instance."""
     return Settings()
+
+
+def clear_settings_cache() -> None:
+    """Invalidate the settings cache so the next call reloads from disk.
+
+    Called by the settings API after writing settings.yaml so the API layer
+    reflects the new values immediately.  The bot process retains its cached
+    copy until its next restart or until it explicitly calls this too.
+    """
+    get_settings.cache_clear()

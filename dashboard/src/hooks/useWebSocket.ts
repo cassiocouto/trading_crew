@@ -11,6 +11,7 @@ const EVENT_QUERY_MAP: Record<string, string[][]> = {
   order_filled: [["orders"], ["portfolio"]],
   signal_generated: [["signals"], ["strategy-stats"]],
   circuit_breaker: [["system-status"], ["cycles"]],
+  controls_updated: [["controls"]],
 };
 
 export function useWebSocket() {

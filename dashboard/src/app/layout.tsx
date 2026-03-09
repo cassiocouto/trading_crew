@@ -1,6 +1,17 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import Link from "next/link";
+import {
+  BarChart2,
+  BookOpen,
+  CandlestickChart,
+  History,
+  LayoutDashboard,
+  Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  Zap,
+} from "lucide-react";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 
@@ -12,12 +23,15 @@ export const metadata: Metadata = {
 };
 
 const NAV = [
-  { href: "/", label: "Overview" },
-  { href: "/orders", label: "Orders" },
-  { href: "/signals", label: "Signals" },
-  { href: "/history", label: "History" },
-  { href: "/agents", label: "Agents" },
-  { href: "/backtest", label: "Backtest" },
+  { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/markets", label: "Markets", icon: CandlestickChart },
+  { href: "/orders", label: "Orders", icon: BookOpen },
+  { href: "/signals", label: "Signals", icon: Zap },
+  { href: "/history", label: "History", icon: History },
+  { href: "/agents", label: "Agents", icon: ShieldCheck },
+  { href: "/controls", label: "Controls", icon: SlidersHorizontal },
+  { href: "/backtest", label: "Backtest", icon: BarChart2 },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -32,15 +46,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <span className="font-bold text-indigo-600">Trading Crew</span>
               </div>
               <nav className="mt-2 px-2">
-                {NAV.map((n) => (
-                  <Link
-                    key={n.href}
-                    href={n.href}
-                    className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-indigo-50 hover:text-indigo-700"
-                  >
-                    {n.label}
-                  </Link>
-                ))}
+                {NAV.map((n) => {
+                  const Icon = n.icon;
+                  return (
+                    <Link
+                      key={n.href}
+                      href={n.href}
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-indigo-50 hover:text-indigo-700"
+                    >
+                      <Icon size={15} className="shrink-0" />
+                      {n.label}
+                    </Link>
+                  );
+                })}
               </nav>
             </aside>
             {/* Main content */}

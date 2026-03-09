@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 from trading_crew.agents.risk_manager import create_risk_advisor
 from trading_crew.agents.sentiment import create_sentiment_advisor
 from trading_crew.agents.strategist import create_context_advisor
+from trading_crew.config import runtime_flags
 from trading_crew.config.settings import (
     SellGuardMode,
     Settings,
@@ -657,6 +658,15 @@ async def main_async() -> None:
         logger.info("--- Cycle %d ---", cycle)
 
         try:
+            # Re-read runtime control flags each cycle so dashboard toggles
+            # take effect without a restart.
+            rt_flags = runtime_flags.read()
+            logger.debug(
+                "Runtime flags: execution_paused=%s, advisory_paused=%s",
+                rt_flags["execution_paused"],
+                rt_flags["advisory_paused"],
+            )
+
             if settings.is_live and settings.balance_sync_interval_seconds > 0:
                 last_balance_sync = await _sync_balance_if_due(
                     exchange_service,
@@ -671,7 +681,22 @@ async def main_async() -> None:
             _refresh_budget_day(settings, budget_state)
             now = time.monotonic()
             plan = _build_run_plan(settings, db_service, now, last_execution_poll)
+
+            # Apply dashboard execution-pause toggle
+            if rt_flags["execution_paused"]:
+                logger.warning(
+                    "Execution paused via dashboard — skipping execution phase this cycle."
+                )
+                plan.run_execution = False
+
             _update_degrade_level(settings, budget_state, notification_service)
+
+            # Pass advisory_paused flag to the flow so it can skip advisory crew
+            _effective_advisory_crew = None if rt_flags["advisory_paused"] else advisory_crew
+            if rt_flags["advisory_paused"] and advisory_crew is not None:
+                logger.warning(
+                    "Advisory crew paused via dashboard — skipping advisory phase this cycle."
+                )
 
             flow = TradingFlow(
                 cycle_number=cycle,
@@ -688,7 +713,7 @@ async def main_async() -> None:
                 db_service=db_service,
                 notif_service=notification_service,
                 uncertainty_scorer=uncertainty_scorer,
-                advisory_crew=advisory_crew,
+                advisory_crew=_effective_advisory_crew,
                 previous_regimes=previous_regimes,
                 settings=settings,
             )

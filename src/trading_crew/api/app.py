@@ -59,11 +59,16 @@ def create_app() -> FastAPI:
     from trading_crew.api.routers import (
         agents,
         backtest,
+        controls,
         cycles,
+        market,
         orders,
         portfolio,
         signals,
         system,
+    )
+    from trading_crew.api.routers import (
+        settings as settings_router,
     )
     from trading_crew.api.websocket import ws_events_handler
     from trading_crew.config.settings import get_settings
@@ -111,6 +116,9 @@ def create_app() -> FastAPI:
     app.include_router(system.router, prefix="/api/system")
     app.include_router(agents.router, prefix="/api/agents")
     app.include_router(backtest.router, prefix="/api/backtest")
+    app.include_router(settings_router.router, prefix="/api/settings")
+    app.include_router(controls.router, prefix="/api/controls")
+    app.include_router(market.router, prefix="/api/market")
 
     app.add_api_websocket_route("/ws/events", ws_events_handler)
 

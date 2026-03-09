@@ -26,6 +26,11 @@ env/
 *.pem
 secrets/
 
+# Runtime & user-edited config — managed by the app/dashboard, not version-controlled
+# Copy settings.yaml.example to settings.yaml and edit as needed.
+src/trading_crew/config/runtime.yaml
+src/trading_crew/config/settings.yaml
+
 # Database
 *.db
 *.sqlite3

@@ -63,9 +63,13 @@ cd trading-crew
 make dev
 # or: uv sync --all-extras
 
-# Copy and configure environment
+# Copy and configure secrets
 cp .env.example .env
-# Edit .env with your settings (paper trading is the default)
+# Edit .env — at minimum set OPENAI_API_KEY if you want the advisory crew
+
+# Copy and configure non-secret settings (optional — defaults are sane for paper trading)
+cp src/trading_crew/config/settings.yaml.example src/trading_crew/config/settings.yaml
+# Edit settings.yaml — or configure everything via the dashboard Settings page
 ```
 
 ### Run in Paper-Trading Mode
@@ -165,15 +169,18 @@ Open [http://localhost:3000](http://localhost:3000) to view the dashboard.
 | Page | Content |
 |------|---------|
 | Overview | Balance, P&L, open positions, last cycle, circuit breaker alert, agent grid |
+| Markets | Candlestick chart + volume histogram for each tracked symbol; timeframe selector (1H / 4H / 1D) |
 | Orders | Recent orders with status filters, failed orders, per-position P&L cards |
 | Signals | Signal feed with strategy tags and confidence bars |
 | History | Equity curve, strategy breakdown table, cycle history |
 | Agents | Advisory crew status, uncertainty score, last advisory activation |
+| Controls | Live toggles: pause/resume execution agent and advisory crew; advisory is locked when no LLM key is set |
 | Backtest | Form to run a backtest over stored OHLCV data and view trade table |
+| Settings | Edit all non-secret settings (trading mode, symbols, risk parameters, etc.) via a web form; changes are written to `settings.yaml` |
 
 ### WebSocket live updates
 
-The FastAPI server polls the database every 3 seconds and pushes `cycle_complete`, `order_filled`, `signal_generated`, and `circuit_breaker` events to connected clients. React Query invalidates the relevant queries on each event so the UI stays current without polling.
+The FastAPI server polls the database every 3 seconds and pushes `cycle_complete`, `order_filled`, `signal_generated`, `circuit_breaker`, and `controls_updated` events to connected clients. React Query invalidates the relevant queries on each event so the UI stays current without polling.
 
 ### Optional API key
 
@@ -181,26 +188,50 @@ Set `DASHBOARD_API_KEY=<secret>` in your `.env` to require an `X-API-Key` header
 
 ## Configuration
 
-All configuration is done through environment variables (`.env` file) and YAML
-files. Key settings:
+Configuration uses a two-layer model:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TRADING_MODE` | `paper` | `paper` for simulation, `live` for real trading |
-| `EXCHANGE_ID` | `binance` | CCXT exchange identifier |
-| `EXCHANGE_SANDBOX` | `true` | Use exchange testnet |
-| `DATABASE_URL` | `sqlite:///trading_crew.db` | Database connection string |
-| `LOOP_INTERVAL_SECONDS` | `900` | Main loop cadence (15m default) |
-| `ADVISORY_ENABLED` | `true` | Enable uncertainty-gated advisory crew |
-| `ADVISORY_ACTIVATION_THRESHOLD` | `0.6` | Uncertainty score that triggers advisory |
-| `ENSEMBLE_ENABLED` | `false` | Enable ensemble voting across strategies |
-| `STOP_LOSS_METHOD` | `fixed` | `fixed` (%) or `atr` (volatility-adaptive) |
-| `INITIAL_BALANCE_QUOTE` | `10000` | Starting paper balance (quote currency) |
-| `DAILY_TOKEN_BUDGET_TOKENS` | `600000` | Estimated daily token budget cap |
-| `TOKEN_BUDGET_DEGRADE_MODE` | `normal` | `normal` or `budget_stop` |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
+| File | Contents | Version-controlled? |
+|------|----------|---------------------|
+| `.env` | Secrets only: API keys, tokens, `DATABASE_URL` | No (gitignored) |
+| `settings.yaml` | All non-secret settings | No (gitignored) |
 
-See [.env.example](.env.example) for all available settings.
+`settings.yaml.example` and `.env.example` are version-controlled templates.
+
+```bash
+cp .env.example .env
+cp src/trading_crew/config/settings.yaml.example src/trading_crew/config/settings.yaml
+# Edit both files with your values
+```
+
+Priority order (highest wins): **environment variables > `.env` > `settings.yaml` > code defaults**
+
+Key settings in `settings.yaml`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `trading_mode` | `paper` | `paper` for simulation, `live` for real trading |
+| `exchange_id` | `binance` | CCXT exchange identifier |
+| `symbols` | `[BTC/USDT]` | Trading pairs to track |
+| `loop_interval_seconds` | `900` | Main loop cadence (15m default) |
+| `advisory_enabled` | `true` | Enable uncertainty-gated advisory crew |
+| `advisory_activation_threshold` | `0.6` | Uncertainty score that triggers advisory |
+| `ensemble_enabled` | `true` | Enable ensemble voting across strategies |
+| `stop_loss_method` | `fixed` | `fixed` (%) or `atr` (volatility-adaptive) |
+| `initial_balance_quote` | `10000` | Starting paper balance (quote currency) |
+| `daily_token_budget_tokens` | `600000` | Estimated daily token budget cap |
+| `log_level` | `INFO` | Logging verbosity |
+
+Secrets in `.env`:
+
+| Variable | Description |
+|----------|-------------|
+| `EXCHANGE_API_KEY` / `EXCHANGE_API_SECRET` | Exchange credentials (required for live trading) |
+| `OPENAI_API_KEY` | LLM key for the advisory crew |
+| `DATABASE_URL` | Database connection string (default: SQLite) |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional Telegram alerts |
+| `DASHBOARD_API_KEY` | Optional API key to protect the REST dashboard |
+
+See [settings.yaml.example](src/trading_crew/config/settings.yaml.example) and [.env.example](.env.example) for the complete reference.
 
 ### LLM Token Costs
 
