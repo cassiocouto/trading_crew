@@ -49,6 +49,9 @@ const SIGNALS_LIMIT = 30;
 // ---------------------------------------------------------------------------
 
 interface StrategyDef {
+  /** Must exactly match the backend strategy's `name` class attribute.
+   *  If the strategy is renamed in Python the overlay silently stops
+   *  associating with its signals — keep these in sync. */
   id: string;
   label: string;
   /** Primary color used for the toggle pill border and the first overlay line. */
@@ -116,9 +119,11 @@ const STRATEGY_DEFS: StrategyDef[] = [
     indicatorLabels: ["RSI 14", "Overbought 70", "Oversold 30", "Range High", "Range Low"],
     buildOverlays: (bars) => {
       const rsiData = rsiAligned(bars, 14);
-      // range_high / range_low are scalar values — synthesised as flat series
-      const rangeHigh = bars.length > 0 ? Math.max(...bars.map((b) => b.high)) : 0;
-      const rangeLow = bars.length > 0 ? Math.min(...bars.map((b) => b.low)) : 0;
+      // range_high / range_low are scalar values — synthesised as flat series.
+      // Use reduce rather than Math.max(...array) to avoid stack overflow at
+      // high OHLCV_LIMIT values (spread puts every element on the call stack).
+      const rangeHigh = bars.reduce((m, b) => Math.max(m, b.high), -Infinity);
+      const rangeLow = bars.reduce((m, b) => Math.min(m, b.low), Infinity);
       const flatHigh = bars.map((b) => ({ time: b.timestamp, value: rangeHigh }));
       const flatLow = bars.map((b) => ({ time: b.timestamp, value: rangeLow }));
       // RSI reference levels (30 / 70) — flat series in the RSI sub-pane

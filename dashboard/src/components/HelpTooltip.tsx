@@ -42,7 +42,7 @@ export function HelpTooltip({ text }: HelpTooltipProps) {
         ?
       </button>
       {open && (
-        <span className="absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-2.5 text-xs leading-relaxed text-gray-600 shadow-lg">
+        <span className="absolute bottom-full left-1/2 z-50 mb-2 w-56 max-w-[min(224px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-2.5 text-xs leading-relaxed text-gray-600 shadow-lg">
           {text}
           <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-4 border-transparent border-t-gray-200" />
         </span>

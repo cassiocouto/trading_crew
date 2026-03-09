@@ -22,10 +22,6 @@ logger = logging.getLogger(__name__)
 
 _RUNTIME_YAML: Path = Path(__file__).resolve().parent / "runtime.yaml"
 
-_DEFAULTS: dict[str, bool] = {
-    "execution_paused": False,
-    "advisory_paused": False,
-}
 
 _write_lock = threading.Lock()
 
@@ -54,7 +50,7 @@ def read() -> RuntimeFlags:
         )
     except Exception as exc:
         logger.warning("Failed to read runtime.yaml (%s) — using defaults", exc)
-        return RuntimeFlags(**_DEFAULTS)
+        return RuntimeFlags(execution_paused=False, advisory_paused=False)
 
 
 def write(flags: RuntimeFlags) -> None:
@@ -82,7 +78,7 @@ def write(flags: RuntimeFlags) -> None:
 def _bootstrap() -> None:
     """Create runtime.yaml with safe defaults if it does not exist."""
     try:
-        write(RuntimeFlags(**_DEFAULTS))
+        write(RuntimeFlags(execution_paused=False, advisory_paused=False))
         logger.info("Bootstrapped runtime.yaml at %s", _RUNTIME_YAML)
     except Exception as exc:
         logger.warning("Could not bootstrap runtime.yaml: %s", exc)

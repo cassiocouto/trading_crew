@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -100,7 +101,9 @@ def update_settings(body: SettingsUpdate) -> SettingsResponse:
     # Load existing YAML (or start fresh)
     if _SETTINGS_YAML.exists():
         try:
-            existing: dict = yaml.safe_load(_SETTINGS_YAML.read_text(encoding="utf-8")) or {}
+            existing: dict[str, Any] = (
+                yaml.safe_load(_SETTINGS_YAML.read_text(encoding="utf-8")) or {}
+            )
         except Exception as exc:
             raise HTTPException(
                 status_code=500, detail=f"Failed to read settings.yaml: {exc}"
