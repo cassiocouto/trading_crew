@@ -12,14 +12,26 @@ export const usePortfolio = () =>
 export const usePnlHistory = (limit = 100) =>
   useQuery({ queryKey: ["pnl-history", limit], queryFn: () => api.getPnlHistory(limit), staleTime: STALE });
 
-export const useOrders = (limit = 50, status?: string) =>
-  useQuery({ queryKey: ["orders", limit, status], queryFn: () => api.getOrders(limit, status), staleTime: STALE });
+export const useOrders = (limit = 50, status?: string, symbol?: string) =>
+  useQuery({
+    queryKey: ["orders", limit, status, symbol],
+    queryFn: () => api.getOrders(limit, status, symbol),
+    staleTime: STALE,
+  });
 
-export const useFailedOrders = () =>
-  useQuery({ queryKey: ["failed-orders"], queryFn: () => api.getFailedOrders(), staleTime: STALE });
+export const useFailedOrders = (unresolvedOnly = true, symbol?: string) =>
+  useQuery({
+    queryKey: ["failed-orders", unresolvedOnly, symbol],
+    queryFn: () => api.getFailedOrders(unresolvedOnly, symbol),
+    staleTime: STALE,
+  });
 
-export const useSignals = (limit = 50, strategy?: string) =>
-  useQuery({ queryKey: ["signals", limit, strategy], queryFn: () => api.getSignals(limit, strategy), staleTime: STALE });
+export const useSignals = (limit = 50, strategy?: string, symbol?: string) =>
+  useQuery({
+    queryKey: ["signals", limit, strategy, symbol],
+    queryFn: () => api.getSignals(limit, strategy, symbol),
+    staleTime: STALE,
+  });
 
 export const useStrategyStats = () =>
   useQuery({ queryKey: ["strategy-stats"], queryFn: api.getStrategyStats, staleTime: STALE });

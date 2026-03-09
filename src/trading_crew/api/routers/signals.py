@@ -21,20 +21,19 @@ router = APIRouter(tags=["signals"])
 def get_signals(
     limit: int = Query(default=50, ge=1, le=500),
     strategy: str | None = Query(default=None),
+    symbol: str | None = Query(default=None),
     db: DatabaseService = Depends(get_db),
 ) -> list[SignalResponse]:
-    """Return recent trade signals, optionally filtered by strategy."""
+    """Return recent trade signals, optionally filtered by strategy and/or symbol."""
     from sqlalchemy import select
 
     with get_session(db._engine) as session:
-        stmt = select(TradeSignalRecord).order_by(TradeSignalRecord.id.desc()).limit(limit)
+        stmt = select(TradeSignalRecord)
         if strategy:
-            stmt = (
-                select(TradeSignalRecord)
-                .where(TradeSignalRecord.strategy_name == strategy)
-                .order_by(TradeSignalRecord.id.desc())
-                .limit(limit)
-            )
+            stmt = stmt.where(TradeSignalRecord.strategy_name == strategy)
+        if symbol:
+            stmt = stmt.where(TradeSignalRecord.symbol == symbol)
+        stmt = stmt.order_by(TradeSignalRecord.id.desc()).limit(limit)
         records = session.execute(stmt).scalars().all()
         return [
             SignalResponse(

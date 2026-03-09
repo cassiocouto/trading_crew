@@ -7,9 +7,10 @@ import type { OHLCVBar } from "@/types";
 interface CandlestickChartProps {
   data: OHLCVBar[];
   height?: number;
+  showVolume?: boolean;
 }
 
-export function CandlestickChart({ data, height = 400 }: CandlestickChartProps) {
+export function CandlestickChart({ data, height = 400, showVolume = false }: CandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -17,11 +18,14 @@ export function CandlestickChart({ data, height = 400 }: CandlestickChartProps) 
 
     let chart: IChartApi | null = null;
     let observer: ResizeObserver | null = null;
+    let destroyed = false;
 
     const init = async () => {
       const lw = await import("lightweight-charts");
       const el = containerRef.current;
-      if (!el) return;
+      // Bail out if the effect was cleaned up while we were awaiting the import.
+      // This prevents a double-chart in React 18 Strict Mode.
+      if (!el || destroyed) return;
 
       chart = lw.createChart(el, {
         width: el.clientWidth,
@@ -53,15 +57,23 @@ export function CandlestickChart({ data, height = 400 }: CandlestickChartProps) 
         wickUpColor: "#10b981",
       });
 
-      const volumeSeries = chart.addSeries(lw.HistogramSeries, {
-        color: "#6366f1",
-        priceFormat: { type: "volume" as const },
-        priceScaleId: "volume",
-      });
-
-      chart.priceScale("volume").applyOptions({
-        scaleMargins: { top: 0.8, bottom: 0 },
-      });
+      if (showVolume) {
+        const volumeSeries = chart.addSeries(lw.HistogramSeries, {
+          color: "#6366f1",
+          priceFormat: { type: "volume" as const },
+          priceScaleId: "volume",
+        });
+        chart.priceScale("volume").applyOptions({
+          scaleMargins: { top: 0.8, bottom: 0 },
+        });
+        volumeSeries.setData(
+          data.map((bar) => ({
+            time: bar.timestamp as Time,
+            value: bar.volume,
+            color: bar.close >= bar.open ? "#10b98133" : "#ef444433",
+          }))
+        );
+      }
 
       candleSeries.setData(
         data.map((bar) => ({
@@ -70,14 +82,6 @@ export function CandlestickChart({ data, height = 400 }: CandlestickChartProps) 
           high: bar.high,
           low: bar.low,
           close: bar.close,
-        }))
-      );
-
-      volumeSeries.setData(
-        data.map((bar) => ({
-          time: bar.timestamp as Time,
-          value: bar.volume,
-          color: bar.close >= bar.open ? "#10b98133" : "#ef444433",
         }))
       );
 
@@ -95,10 +99,11 @@ export function CandlestickChart({ data, height = 400 }: CandlestickChartProps) 
     init();
 
     return () => {
+      destroyed = true;
       observer?.disconnect();
       chart?.remove();
     };
-  }, [data, height]);
+  }, [data, height, showVolume]);
 
   if (data.length === 0) {
     return (

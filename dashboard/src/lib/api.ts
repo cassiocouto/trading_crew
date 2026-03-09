@@ -74,13 +74,24 @@ export const api = {
   getPortfolio: () => get<PortfolioResponse>("/api/portfolio/"),
   getPnlHistory: (limit = 100) => get<PnLPointResponse[]>("/api/portfolio/history", { limit }),
 
-  getOrders: (limit = 50, status?: string) =>
-    get<OrderResponse[]>("/api/orders/", status ? { limit, status } : { limit }),
-  getFailedOrders: (unresolvedOnly = true) =>
-    get<FailedOrderResponse[]>("/api/orders/failed", { unresolved_only: unresolvedOnly }),
+  getOrders: (limit = 50, status?: string, symbol?: string) => {
+    const params: Record<string, string | number | boolean> = { limit };
+    if (status) params.status = status;
+    if (symbol) params.symbol = symbol;
+    return get<OrderResponse[]>("/api/orders/", params);
+  },
+  getFailedOrders: (unresolvedOnly = true, symbol?: string) => {
+    const params: Record<string, string | number | boolean> = { unresolved_only: unresolvedOnly };
+    if (symbol) params.symbol = symbol;
+    return get<FailedOrderResponse[]>("/api/orders/failed", params);
+  },
 
-  getSignals: (limit = 50, strategy?: string) =>
-    get<SignalResponse[]>("/api/signals/", strategy ? { limit, strategy } : { limit }),
+  getSignals: (limit = 50, strategy?: string, symbol?: string) => {
+    const params: Record<string, string | number | boolean> = { limit };
+    if (strategy) params.strategy = strategy;
+    if (symbol) params.symbol = symbol;
+    return get<SignalResponse[]>("/api/signals/", params);
+  },
   getStrategyStats: () => get<StrategyStatsResponse[]>("/api/signals/strategy-stats"),
 
   getCycles: (limit = 50) => get<CycleResponse[]>("/api/cycles/", { limit }),

@@ -21,20 +21,19 @@ router = APIRouter(tags=["orders"])
 def get_orders(
     limit: int = Query(default=50, ge=1, le=500),
     status: str | None = Query(default=None),
+    symbol: str | None = Query(default=None),
     db: DatabaseService = Depends(get_db),
 ) -> list[OrderResponse]:
-    """Return recent orders, optionally filtered by status."""
+    """Return recent orders, optionally filtered by status and/or symbol."""
     from sqlalchemy import select
 
     with get_session(db._engine) as session:
-        stmt = select(OrderRecord).order_by(OrderRecord.id.desc()).limit(limit)
+        stmt = select(OrderRecord)
         if status:
-            stmt = (
-                select(OrderRecord)
-                .where(OrderRecord.status == status)
-                .order_by(OrderRecord.id.desc())
-                .limit(limit)
-            )
+            stmt = stmt.where(OrderRecord.status == status)
+        if symbol:
+            stmt = stmt.where(OrderRecord.symbol == symbol)
+        stmt = stmt.order_by(OrderRecord.id.desc()).limit(limit)
         records = session.execute(stmt).scalars().all()
         return [
             OrderResponse(
@@ -64,19 +63,19 @@ def get_orders(
 @router.get("/failed", response_model=list[FailedOrderResponse])
 def get_failed_orders(
     unresolved_only: bool = Query(default=True),
+    symbol: str | None = Query(default=None),
     db: DatabaseService = Depends(get_db),
 ) -> list[FailedOrderResponse]:
-    """Return failed (dead-letter) orders."""
+    """Return failed (dead-letter) orders, optionally filtered by symbol."""
     from sqlalchemy import select
 
     with get_session(db._engine) as session:
-        stmt = select(FailedOrderRecord).order_by(FailedOrderRecord.id.desc())
+        stmt = select(FailedOrderRecord)
         if unresolved_only:
-            stmt = (
-                select(FailedOrderRecord)
-                .where(FailedOrderRecord.resolved.is_(False))
-                .order_by(FailedOrderRecord.id.desc())
-            )
+            stmt = stmt.where(FailedOrderRecord.resolved.is_(False))
+        if symbol:
+            stmt = stmt.where(FailedOrderRecord.symbol == symbol)
+        stmt = stmt.order_by(FailedOrderRecord.id.desc())
         records = session.execute(stmt).scalars().all()
         return [
             FailedOrderResponse(
