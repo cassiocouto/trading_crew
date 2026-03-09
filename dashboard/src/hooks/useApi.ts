@@ -12,35 +12,48 @@ export const usePortfolio = () =>
 export const usePnlHistory = (limit = 100) =>
   useQuery({ queryKey: ["pnl-history", limit], queryFn: () => api.getPnlHistory(limit), staleTime: STALE });
 
-export const useOrders = (limit = 50, status?: string, symbol?: string) =>
+export const useOrders = (limit = 50, status?: string, symbol?: string, refetchInterval?: number) =>
   useQuery({
     queryKey: ["orders", limit, status, symbol],
     queryFn: () => api.getOrders(limit, status, symbol),
     staleTime: STALE,
+    refetchInterval,
   });
 
-export const useFailedOrders = (unresolvedOnly = true, symbol?: string) =>
+export const useFailedOrders = (unresolvedOnly = true, symbol?: string, refetchInterval?: number) =>
   useQuery({
     queryKey: ["failed-orders", unresolvedOnly, symbol],
     queryFn: () => api.getFailedOrders(unresolvedOnly, symbol),
     staleTime: STALE,
+    refetchInterval,
   });
 
-export const useSignals = (limit = 50, strategy?: string, symbol?: string) =>
+export const useSignals = (limit = 50, strategy?: string, symbol?: string, refetchInterval?: number) =>
   useQuery({
     queryKey: ["signals", limit, strategy, symbol],
     queryFn: () => api.getSignals(limit, strategy, symbol),
     staleTime: STALE,
+    refetchInterval,
   });
 
-export const useStrategyStats = () =>
-  useQuery({ queryKey: ["strategy-stats"], queryFn: api.getStrategyStats, staleTime: STALE });
+export const useStrategyStats = (refetchInterval?: number) =>
+  useQuery({
+    queryKey: ["strategy-stats"],
+    queryFn: api.getStrategyStats,
+    staleTime: STALE,
+    refetchInterval,
+  });
 
 export const useCycles = (limit = 50) =>
   useQuery({ queryKey: ["cycles", limit], queryFn: () => api.getCycles(limit), staleTime: STALE });
 
-export const useLatestCycle = () =>
-  useQuery({ queryKey: ["latest-cycle"], queryFn: api.getLatestCycle, staleTime: STALE });
+export const useLatestCycle = (refetchInterval?: number) =>
+  useQuery({
+    queryKey: ["latest-cycle"],
+    queryFn: api.getLatestCycle,
+    staleTime: STALE,
+    refetchInterval,
+  });
 
 export const useSystemStatus = () =>
   useQuery({ queryKey: ["system-status"], queryFn: api.getSystemStatus, staleTime: STALE });
@@ -91,8 +104,15 @@ export const useUpdateControls = () => {
 // Market data
 // ---------------------------------------------------------------------------
 
+// Symbol ticker auto-refreshes every 15 s everywhere it is used — it drives
+// the live price display in the Markets page header.
 export const useMarketSymbols = () =>
-  useQuery({ queryKey: ["market-symbols"], queryFn: api.getMarketSymbols, staleTime: 30_000 });
+  useQuery({
+    queryKey: ["market-symbols"],
+    queryFn: api.getMarketSymbols,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
+  });
 
 export const useMarketOHLCV = (symbol: string, timeframe = "1h", limit = 120) =>
   useQuery({

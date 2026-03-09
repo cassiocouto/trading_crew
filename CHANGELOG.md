@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Markets page sidebar** — three collapsible panels added alongside the candlestick chart:
+  - **Cycle & Strategies** — current cycle number and a per-strategy summary (buy/sell signal counts, avg confidence) for every strategy that has produced signals for the selected symbol
+  - **Latest Signals** — last 30 signals for the selected symbol; each row shows signal type, strategy, confidence bar, risk verdict, and timestamp; click any row to expand the full **reasoning text** (`reason` field) written by the strategy
+  - **Volatility** — ATR(14), ATR as % of last close, 20-bar high/low range, and a colour-coded regime label (Low / Normal / Elevated / High); computed client-side from the already-fetched OHLCV data — no extra API call
+  - **Orders** — last 25 orders for the selected symbol with side badge, fill price, strategy name, and status
+  - **Failed Orders** — unresolved failed orders for the selected symbol with error reason (full text on hover)
+- **Volume toggle on candlestick chart** — the volume histogram is now hidden by default (resolves the "two charts" appearance); a "Volume" checkbox in the chart header re-enables it; `CandlestickChart` gains a `showVolume?: boolean` prop (default `false`)
+- **Markets page auto-refresh** — all sidebar panels and the ticker summary poll the API automatically: ticker prices every 15 s, signals and orders every 30 s, candles every 60 s; a live indicator in the page header shows elapsed time since last fetch and pulses amber during background refreshes
+- **`?symbol=` filter on `GET /api/orders/`** — optional query parameter scoping results to a single trading pair; backward-compatible (omitting it returns all symbols as before)
+- **`?symbol=` filter on `GET /api/orders/failed`** — same as above for dead-letter orders
+- **`?symbol=` filter on `GET /api/signals/`** — optional query parameter to return signals for one symbol only
+- **MACD Crossover strategy** (`strategies/macd_crossover.py`) — fires on every cycle where the MACD histogram is non-zero (bullish when histogram > 0, bearish when < 0); confidence scales with histogram magnitude relative to current price; configurable `min_histogram` floor to suppress whipsaw signals in flat markets; uses the `macd_line`, `macd_signal`, and `macd_histogram` indicators that `TechnicalAnalyzer` already computes on every cycle — zero extra cost; registered as the fourth built-in strategy alongside EMA Crossover, Bollinger Bands, and RSI Range
+
+### Changed
+
+- **Bollinger Bands strategy** — fires when price is within **10% of the band width** from either edge rather than only when price is exactly at/beyond the band; `proximity_pct` constructor parameter (default `0.10`) is configurable; base confidence lowered from `0.60` to `0.55` for near-band signals; reasons string updated to show proximity percentage
+
+### Fixed
+
+- **Double chart in React 18 Strict Mode** — `CandlestickChart` now sets a `destroyed` flag before the `lightweight-charts` dynamic import resolves; if React's Strict Mode cleanup fires before the async init completes, the init bails out immediately, preventing two chart instances from being attached to the same DOM element
+
 - **Dashboard Settings page** (`/settings`) — grouped web form to view and edit all non-secret settings; changes are written to `settings.yaml` atomically and the API cache is busted immediately; fields are validated against Pydantic-defined enum literals before persistence
 - **Dashboard Markets page** (`/markets`) — candlestick chart with volume histogram for each tracked symbol via `lightweight-charts` v5; symbol tabs, 1H/4H/1D timeframe selector, and 60s auto-refresh; data sourced from the local `ohlcv` database table
 - **Dashboard Controls page** (`/controls`) — live toggle cards for the execution agent and advisory crew; advisory toggle is disabled and shows an explanation when no LLM API key is configured; confirmation dialog guards against accidental execution pause

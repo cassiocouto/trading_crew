@@ -22,9 +22,19 @@ if TYPE_CHECKING:
 
 
 class BollingerBandsStrategy(BaseStrategy):
-    """Buy at lower band, sell at upper band."""
+    """Buy when price is near/below the lower band; sell near/above the upper band.
+
+    ``proximity_pct`` controls how close the price needs to be to the band
+    before a signal fires, expressed as a fraction of the total band width.
+    0.0 = only fire when price is exactly at/beyond the band edge (original
+    strict behaviour); 0.10 = fire when price is within 10 % of band width
+    from either edge (default — more responsive).
+    """
 
     name = "bollinger_bands"
+
+    def __init__(self, proximity_pct: float = 0.10) -> None:
+        self._proximity_pct = max(0.0, proximity_pct)
 
     def generate_signal(self, analysis: MarketAnalysis) -> TradeSignal | None:
         upper = analysis.get_indicator("bb_upper")
@@ -40,9 +50,15 @@ class BollingerBandsStrategy(BaseStrategy):
         if band_width <= 0:
             return None
 
-        if price <= lower:
-            distance_pct = ((lower - price) / band_width) * 100
-            confidence = min(0.6 + distance_pct * 0.05, 0.95)
+        # Proximity threshold in price terms
+        threshold = band_width * self._proximity_pct
+        lower_trigger = lower + threshold
+        upper_trigger = upper - threshold
+
+        if price <= lower_trigger:
+            # How far below (or near) the lower band, scaled to band width
+            distance_pct = ((lower_trigger - price) / band_width) * 100
+            confidence = min(0.55 + distance_pct * 0.05, 0.95)
 
             return TradeSignal(
                 symbol=analysis.symbol,
@@ -53,14 +69,15 @@ class BollingerBandsStrategy(BaseStrategy):
                 strategy_name=self.name,
                 entry_price=price,
                 reason=(
-                    f"Price {price:.2f} at/below lower Bollinger Band {lower:.2f} "
-                    f"(middle={middle:.2f}, upper={upper:.2f})"
+                    f"Price {price:.2f} near/below lower Bollinger Band {lower:.2f} "
+                    f"(proximity={self._proximity_pct:.0%} of band width, "
+                    f"middle={middle:.2f}, upper={upper:.2f})"
                 ),
             )
 
-        if price >= upper:
-            distance_pct = ((price - upper) / band_width) * 100
-            confidence = min(0.6 + distance_pct * 0.05, 0.95)
+        if price >= upper_trigger:
+            distance_pct = ((price - upper_trigger) / band_width) * 100
+            confidence = min(0.55 + distance_pct * 0.05, 0.95)
 
             return TradeSignal(
                 symbol=analysis.symbol,
@@ -71,8 +88,9 @@ class BollingerBandsStrategy(BaseStrategy):
                 strategy_name=self.name,
                 entry_price=price,
                 reason=(
-                    f"Price {price:.2f} at/above upper Bollinger Band {upper:.2f} "
-                    f"(middle={middle:.2f}, lower={lower:.2f})"
+                    f"Price {price:.2f} near/above upper Bollinger Band {upper:.2f} "
+                    f"(proximity={self._proximity_pct:.0%} of band width, "
+                    f"middle={middle:.2f}, lower={lower:.2f})"
                 ),
             )
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import {
   useMarketOHLCV,
@@ -12,6 +12,11 @@ import {
   useStrategyStats,
 } from "@/hooks/useApi";
 import type { OHLCVBar, OrderResponse, FailedOrderResponse, SignalResponse, StrategyStatsResponse } from "@/types";
+
+// Auto-refresh intervals for the markets page
+const REFRESH_TICKER_MS = 15_000;   // ticker prices + cycle counter
+const REFRESH_SIGNALS_MS = 30_000;  // signals + orders
+const REFRESH_CHART_MS = 60_000;    // OHLCV candles (same as default)
 
 const TIMEFRAMES = [
   { label: "1H", value: "1h" },
@@ -55,19 +60,31 @@ function volatilityRegime(atrPct: number): { label: string; color: string } {
 // ---------------------------------------------------------------------------
 
 export default function MarketsPage() {
-  const { data: symbols, isLoading: symbolsLoading } = useMarketSymbols();
+  const { data: symbols, isLoading: symbolsLoading, dataUpdatedAt: tickerUpdatedAt } =
+    useMarketSymbols();
   const [activeSymbol, setActiveSymbol] = useState<string>("");
   const [timeframe, setTimeframe] = useState("1h");
   const [showVolume, setShowVolume] = useState(false);
+  const [, setTick] = useState(0); // forces re-render every second for the live clock
+
+  // Tick every second so the "updated X s ago" counter is live
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 1_000);
+    return () => clearInterval(id);
+  }, []);
 
   const selectedSymbol = activeSymbol || symbols?.[0]?.symbol || "";
 
-  const { data: ohlcv, isLoading: candlesLoading } = useMarketOHLCV(selectedSymbol, timeframe, OHLCV_LIMIT);
-  const { data: orders, isLoading: ordersLoading } = useOrders(SIDEBAR_ORDER_LIMIT, undefined, selectedSymbol || undefined);
-  const { data: failedOrders, isLoading: failedLoading } = useFailedOrders(true, selectedSymbol || undefined);
-  const { data: signals, isLoading: signalsLoading } = useSignals(SIGNALS_LIMIT, undefined, selectedSymbol || undefined);
-  const { data: latestCycle } = useLatestCycle();
-  const { data: strategyStats } = useStrategyStats();
+  const { data: ohlcv, isLoading: candlesLoading, dataUpdatedAt: candleUpdatedAt, isFetching: candleFetching } =
+    useMarketOHLCV(selectedSymbol, timeframe, OHLCV_LIMIT);
+  const { data: orders, isLoading: ordersLoading } =
+    useOrders(SIDEBAR_ORDER_LIMIT, undefined, selectedSymbol || undefined, REFRESH_SIGNALS_MS);
+  const { data: failedOrders, isLoading: failedLoading } =
+    useFailedOrders(true, selectedSymbol || undefined, REFRESH_CHART_MS);
+  const { data: signals, isLoading: signalsLoading } =
+    useSignals(SIGNALS_LIMIT, undefined, selectedSymbol || undefined, REFRESH_SIGNALS_MS);
+  const { data: latestCycle } = useLatestCycle(REFRESH_TICKER_MS);
+  const { data: strategyStats } = useStrategyStats(REFRESH_CHART_MS);
 
   const activeSymbolData = symbols?.find((s) => s.symbol === selectedSymbol);
 
@@ -76,11 +93,30 @@ export default function MarketsPage() {
     ? [...new Set(signals.map((s) => s.strategy_name))]
     : [];
 
+  const lastUpdatedSecs =
+    candleUpdatedAt > 0 ? Math.round((Date.now() - candleUpdatedAt) / 1000) : null;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-gray-900">Markets</h1>
-        <p className="mt-0.5 text-sm text-gray-500">Price, signals, and order history for tracked symbols.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">Markets</h1>
+          <p className="mt-0.5 text-sm text-gray-500">Price, signals, and order history for tracked symbols.</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-500 shadow-sm">
+          <span
+            className={`h-2 w-2 rounded-full ${candleFetching ? "animate-pulse bg-amber-400" : "bg-emerald-400"}`}
+          />
+          {candleFetching
+            ? "Refreshing…"
+            : lastUpdatedSecs !== null
+              ? `Updated ${lastUpdatedSecs}s ago`
+              : "Live"}
+          <span className="text-gray-300">·</span>
+          <span>chart {REFRESH_CHART_MS / 1000}s</span>
+          <span className="text-gray-300">·</span>
+          <span>signals {REFRESH_SIGNALS_MS / 1000}s</span>
+        </div>
       </div>
 
       {symbolsLoading ? (

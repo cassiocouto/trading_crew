@@ -1,4 +1,4 @@
-﻿# Trading Crew — Developer Manual
+# Trading Crew — Developer Manual
 
 This manual is for developers who want to understand the internals of Trading Crew, extend it with new strategies or tools, contribute to the project, or deploy it in a production environment. If you just want to run the bot, see [USER_MANUAL.md](USER_MANUAL.md) instead.
 
@@ -80,8 +80,9 @@ trading_crew/
 │   ├── strategies/            Pluggable trading strategies
 │   │   ├── base.py            BaseStrategy ABC
 │   │   ├── ema_crossover.py
-│   │   ├── bollinger.py
+│   │   ├── bollinger.py       Fires within proximity_pct of band edge (default 10%)
 │   │   ├── rsi_range.py
+│   │   ├── macd_crossover.py  MACD histogram direction; fires every non-flat cycle
 │   │   └── composite.py       Ensemble voting logic
 │   ├── services/              Infrastructure services
 │   │   ├── exchange_service.py    Async CCXT wrapper + circuit breaker
@@ -334,6 +335,7 @@ DEFAULT_STRATEGIES: list[BaseStrategy] = [
     EMACrossoverStrategy(),
     BollingerBandsStrategy(),
     RSIRangeStrategy(),
+    MACDCrossoverStrategy(),
     MyStrategy(),          # add here
 ]
 ```
@@ -344,20 +346,20 @@ That's it. On the next cycle, your strategy will run alongside the others.
 
 Access indicators with `analysis.get_indicator(key)`. All values are `float | None`.
 
-| Key | Description |
-|-----|-------------|
-| `ema_fast` | 12-period EMA |
-| `ema_slow` | 50-period EMA |
-| `rsi_14` | 14-period RSI |
-| `bb_upper` | Upper Bollinger Band (2σ, 20-period) |
-| `bb_middle` | Middle Bollinger Band (SMA 20) |
-| `bb_lower` | Lower Bollinger Band |
-| `macd` | MACD line |
-| `macd_signal` | MACD signal line |
-| `macd_hist` | MACD histogram |
-| `atr_14` | 14-period ATR |
-| `range_high` | Recent candle high |
-| `range_low` | Recent candle low |
+| Key | Description | Used by |
+|-----|-------------|---------|
+| `ema_fast` | 12-period EMA | `ema_crossover` |
+| `ema_slow` | 50-period EMA | `ema_crossover` |
+| `rsi_14` | 14-period RSI | `rsi_range` |
+| `bb_upper` | Upper Bollinger Band (2σ, 20-period SMA) | `bollinger_bands` |
+| `bb_middle` | Middle Bollinger Band (SMA 20) | `bollinger_bands` |
+| `bb_lower` | Lower Bollinger Band | `bollinger_bands` |
+| `macd_line` | MACD line (EMA12 − EMA26) | `macd_crossover` |
+| `macd_signal` | 9-period EMA of MACD line | `macd_crossover` |
+| `macd_histogram` | `macd_line − macd_signal` | `macd_crossover` |
+| `atr_14` | 14-period ATR | stop-loss sizing |
+| `range_high` | Highest high across all loaded candles | `rsi_range` |
+| `range_low` | Lowest low across all loaded candles | `rsi_range` |
 
 Other fields on `MarketAnalysis`:
 
@@ -604,6 +606,18 @@ The WebSocket poller in `api/websocket.py` emits events by comparing the current
 1. Add the event type string to `WsEvent` in `api/schemas.py`
 2. Add a query block in `_collect_events()` that detects the new condition
 3. Update the frontend's event handler in `dashboard/src/`
+
+### Symbol filtering on read endpoints
+
+Three endpoints accept an optional `?symbol=` query parameter to scope results to a single trading pair:
+
+| Endpoint | Symbol param | Notes |
+|----------|-------------|-------|
+| `GET /api/orders/` | `?symbol=BTC%2FUSDT` | Combined with optional `?status=` filter |
+| `GET /api/orders/failed` | `?symbol=BTC%2FUSDT` | Combined with `?unresolved_only=` flag |
+| `GET /api/signals/` | `?symbol=BTC%2FUSDT` | Combined with optional `?strategy=` filter |
+
+All three are backward-compatible — omitting `symbol` returns all symbols as before. The Markets page sidebar uses this to fetch per-symbol orders and signals without a frontend-side filter.
 
 ### Routers that write outside the database
 

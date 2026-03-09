@@ -68,6 +68,7 @@ from trading_crew.services.strategy_runner import StrategyRunner
 from trading_crew.services.uncertainty_scorer import UncertaintyScorer, UncertaintyWeights
 from trading_crew.strategies.bollinger import BollingerBandsStrategy
 from trading_crew.strategies.ema_crossover import EMACrossoverStrategy
+from trading_crew.strategies.macd_crossover import MACDCrossoverStrategy
 from trading_crew.strategies.rsi_range import RSIRangeStrategy
 
 logger = logging.getLogger("trading_crew")
@@ -534,6 +535,7 @@ async def main_async() -> None:
         EMACrossoverStrategy(),
         BollingerBandsStrategy(),
         RSIRangeStrategy(),
+        MACDCrossoverStrategy(),
     ]
     strategy_runner = StrategyRunner(
         strategies=strategies,

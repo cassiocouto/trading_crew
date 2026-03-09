@@ -138,12 +138,14 @@ directives, then the risk pipeline re-derives order requests.
 | **UncertaintyScorer** | Compute a [0, 1] score from regime, sentiment, disagreement, drawdown, regime change |
 | **AdvisoryCrew** | Review pipeline output when uncertainty is high; return adjustment directives |
 
-> **Current status (v0.11.0)**: Full deterministic trading loop runs as a
-> `TradingFlow` CrewAI Flow with circuit breakers, stop-loss monitoring,
-> advisory-gated LLM activation, token budget degradation, and cycle history
-> persistence. A self-contained backtesting engine validates strategies against
-> historical data. A FastAPI + Next.js dashboard exposes real-time observability
-> via WebSocket live updates.
+> **Current status (v0.12.0)**: Full deterministic trading loop with four built-in
+> strategies (EMA Crossover, Bollinger Bands, RSI Range, MACD Crossover), circuit
+> breakers, stop-loss monitoring, advisory-gated LLM activation, token budget
+> degradation, and cycle history persistence. A FastAPI + Next.js dashboard
+> provides real-time observability including a Markets page with live candlestick
+> chart, signal reasoning sidebar, volatility metrics, and auto-refreshing order
+> panels. A self-contained backtesting engine validates strategies against
+> historical data.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
 
@@ -169,9 +171,9 @@ Open [http://localhost:3000](http://localhost:3000) to view the dashboard.
 | Page | Content |
 |------|---------|
 | Overview | Balance, P&L, open positions, last cycle, circuit breaker alert, agent grid |
-| Markets | Candlestick chart + volume histogram for each tracked symbol; timeframe selector (1H / 4H / 1D) |
+| Markets | Candlestick chart (volume toggleable) per symbol; 1H/4H/1D timeframe; sidebar with **Cycle & Strategies**, **Latest Signals + reasoning**, **Volatility (ATR)**, **Orders**, and **Failed Orders** — all scoped to the selected symbol and auto-refreshing every 15–60 s |
 | Orders | Recent orders with status filters, failed orders, per-position P&L cards |
-| Signals | Signal feed with strategy tags and confidence bars |
+| Signals | Live signal feed with strategy tags and confidence bars |
 | History | Equity curve, strategy breakdown table, cycle history |
 | Agents | Advisory crew status, uncertainty score, last advisory activation |
 | Controls | Live toggles: pause/resume execution agent and advisory crew; advisory is locked when no LLM key is set |

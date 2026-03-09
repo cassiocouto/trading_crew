@@ -219,36 +219,42 @@ The advisory crew requires an OpenAI API key (or compatible LLM). If none is con
 
 ## 6. The Built-in Strategies
 
-When `STRATEGY_PIPELINE_MODE=deterministic`, Trading Crew runs three strategies simultaneously on each symbol.
+Trading Crew runs four strategies simultaneously on each symbol every cycle.
 
 ### EMA Crossover
 
 Generates a **buy** signal when the fast EMA (12-period) crosses above the slow EMA (50-period) and price is above the fast EMA. Generates a **sell** signal on the reverse. Confidence scales with the spread between the two EMAs.
 
-Best in: trending markets.
+Best in: trending markets. Fires infrequently — only when an actual crossover event occurs.
 
 ### Bollinger Bands
 
-Generates a **buy** signal when price touches or crosses below the lower Bollinger Band (mean-reverting signal). Generates a **sell** signal when price touches the upper band.
+Generates a **buy** signal when price is within 10% of the lower Bollinger Band width from the lower edge, and a **sell** signal when price approaches the upper band. Confidence scales with how close the price is to (or beyond) the band. The 10% proximity window means the strategy fires before price reaches the exact band edge, making it more responsive to mean-reversion setups.
 
 Best in: ranging, sideways markets.
 
 ### RSI Range
 
-Generates a **buy** signal when RSI(14) is below the oversold threshold (default 35), and a **sell** signal when RSI(14) is above the overbought threshold (default 65). Confidence scales with how far into the extreme zone RSI has moved.
+Generates a **buy** signal when RSI(14) is below the oversold threshold (default 35) *and* price is in the bottom 20% of the recent price range. Generates a **sell** signal when RSI is above 65 and price is in the top 20% of the range. Both conditions must be true simultaneously. Confidence scales with how far RSI has moved into the extreme zone.
 
 Best in: ranging markets with clear oscillation.
 
+### MACD Crossover
+
+Generates a **buy** signal when the MACD histogram is positive (MACD line above its signal line) and a **sell** signal when it is negative. Fires on practically every cycle in a trending or volatile market, making it the most active of the four built-in strategies. Confidence scales with the size of the histogram relative to the current price — larger separations produce higher-confidence signals.
+
+Best in: trending markets; also active in volatile regimes. Can produce frequent signals in choppy conditions — consider enabling ensemble mode to require agreement from other strategies.
+
 ### Running strategies as an ensemble
 
-By default, all three strategies run independently and each can trigger its own order. With ensemble mode enabled, they must agree before any order is placed:
+By default, all four strategies run independently and each can trigger its own order. With ensemble mode enabled, they must agree before any order is placed:
 
 ```env
 ENSEMBLE_ENABLED=true
 ENSEMBLE_AGREEMENT_THRESHOLD=0.6   # 60% of strategies must agree
 ```
 
-Ensemble mode reduces the number of trades and increases the bar for entry, which can reduce false signals in noisy markets.
+Ensemble mode reduces the number of trades and increases the bar for entry, which can reduce false signals in noisy markets. With four strategies and a 60% threshold, at least 3 out of 4 must agree.
 
 ---
 
@@ -357,7 +363,7 @@ make docker-up
 | Page | What you'll see |
 |------|----------------|
 | **Overview** | Current balance, total P&L, open positions, last cycle summary, circuit breaker status, agent activity grid |
-| **Markets** | Candlestick chart with volume histogram for each tracked symbol; switch between 1H, 4H, 1D timeframes |
+| **Markets** | Candlestick chart (volume toggleable via checkbox) per tracked symbol; 1H/4H/1D timeframe selector; right-hand sidebar with five collapsible panels — **Cycle & Strategies** (current cycle number + per-strategy buy/sell signal counts), **Latest Signals** (most recent signals with confidence, risk verdict, and full strategy reasoning — click to expand), **Volatility** (ATR(14), ATR%, 20-bar price range), **Orders**, and **Failed Orders** — all scoped to the selected symbol and auto-refreshing. |
 | **Orders** | All orders with status filters (open, filled, cancelled, failed). Per-position P&L cards. |
 | **Signals** | Live signal feed with strategy tags, signal direction (BUY/SELL), and confidence bars |
 | **History** | Equity curve chart, strategy breakdown table (signals generated vs. orders filled), cycle history log |
@@ -368,7 +374,7 @@ make docker-up
 
 ### Live updates
 
-The dashboard updates automatically via WebSocket. You don't need to refresh — new signals, filled orders, and completed cycles appear within a few seconds.
+The dashboard updates via WebSocket and timed polling. New signals, filled orders, and completed cycles appear within seconds via WebSocket events. On the Markets page, the ticker refreshes every 15 s, signals and orders every 30 s, and the candle chart every 60 s. A live indicator in the Markets page header shows elapsed time since last fetch and pulses while a background refresh is in progress.
 
 ### Live controls
 
@@ -615,12 +621,21 @@ Check the logs for a startup error. Common causes:
 
 ### The bot runs but never places orders
 
-This is normal at first — the strategies may not be generating signals above the confidence threshold. Check:
+This is normal at first — the strategies generate signals only when their specific conditions are met:
 
-1. **Signals page in the dashboard** — are signals being generated at all? If not, the strategies are not finding entry conditions.
-2. **Log output during the strategy phase** — look for lines mentioning "confidence" or "risk check rejected"
-3. **Circuit breaker** — if `circuit_breaker_tripped: True` appears in the overview page, the bot has halted trading
-4. **Balance too low** — in paper mode, check `INITIAL_BALANCE_QUOTE`; in live mode the bot reads the real wallet balance at startup, so check your actual exchange balance. If the balance is too low relative to the minimum order size on your exchange, the position sizer will produce zero-size orders.
+- **MACD Crossover** fires on most cycles and should produce signals quickly.
+- **EMA Crossover** fires only when price crosses above or below the fast EMA — infrequent in a sideways market.
+- **Bollinger Bands** fires when price is within 10% of band width from either edge.
+- **RSI Range** fires only when RSI is below 35 *and* price is in the bottom 20% of the recent range — a stricter combined condition that may not trigger for many cycles in a neutral market.
+
+If you have been running for several cycles and still see zero signals, check:
+
+1. **Markets page sidebar → Latest Signals** — if it shows no signals, the strategies are not finding entry conditions for this symbol/timeframe. Try a different timeframe (4H or 1D) which may show more signal history.
+2. **Log output during the strategy phase** — look for `Strategy pipeline: 0 signals`; if you see it consistently, the conditions above are genuinely not met.
+3. **Signals page in the dashboard** — filter by strategy to see whether any single strategy is producing signals.
+4. **Log output mentioning "confidence" or "risk check rejected"** — signals may be generated but filtered downstream.
+5. **Circuit breaker** — if `circuit_breaker_tripped: True` appears in the overview page, the bot has halted trading.
+6. **Balance too low** — in paper mode, check `INITIAL_BALANCE_QUOTE`; in live mode the bot reads the real wallet balance at startup. If the balance is too low relative to the minimum order size, the position sizer will produce zero-size orders.
 
 ---
 
