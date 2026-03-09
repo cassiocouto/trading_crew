@@ -168,7 +168,9 @@ class TradingFlow(Flow[CycleState]):
     async def strategy_phase(self) -> None:
         """Generate signals and run risk evaluation — NO portfolio mutation."""
         try:
-            self._evaluation = self._strategy_runner.evaluate(self.state.market_analyses)
+            self._evaluation = self._strategy_runner.evaluate(
+                self.state.market_analyses, portfolio=self._portfolio
+            )
             self.state.signals = self._evaluation.signals
 
             held_symbols = list(self._portfolio.positions.keys())

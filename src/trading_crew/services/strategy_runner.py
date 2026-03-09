@@ -25,6 +25,7 @@ from trading_crew.models.signal import (
 
 if TYPE_CHECKING:
     from trading_crew.models.market import MarketAnalysis
+    from trading_crew.models.portfolio import Portfolio
     from trading_crew.strategies.base import BaseStrategy
 
 logger = logging.getLogger(__name__)
@@ -59,17 +60,33 @@ class StrategyRunner:
     def strategy_names(self) -> list[str]:
         return [s.name for s in self._strategies]
 
-    def evaluate(self, analyses: dict[str, MarketAnalysis]) -> StrategyEvaluation:
+    def evaluate(
+        self,
+        analyses: dict[str, MarketAnalysis],
+        portfolio: Portfolio | None = None,
+    ) -> StrategyEvaluation:
         """Run all strategies against the provided analyses.
+
+        Args:
+            analyses: Market analyses keyed by symbol.
+            portfolio: Current portfolio snapshot used for two pre-flight
+                checks: SELL signals are suppressed when the portfolio holds
+                no position in the symbol, and BUY signals are suppressed
+                when the available quote balance is zero or negative.  Pass
+                ``None`` to skip both checks (e.g. in backtesting).
 
         Returns:
             StrategyEvaluation with actionable signals and full vote breakdown.
         """
         if self._ensemble:
-            return self._evaluate_ensemble(analyses)
-        return self._evaluate_individual(analyses)
+            return self._evaluate_ensemble(analyses, portfolio)
+        return self._evaluate_individual(analyses, portfolio)
 
-    def _evaluate_individual(self, analyses: dict[str, MarketAnalysis]) -> StrategyEvaluation:
+    def _evaluate_individual(
+        self,
+        analyses: dict[str, MarketAnalysis],
+        portfolio: Portfolio | None,
+    ) -> StrategyEvaluation:
         signals: list[TradeSignal] = []
         votes: dict[str, list[StrategyVote]] = {}
         for symbol, analysis in analyses.items():
@@ -94,6 +111,34 @@ class StrategyRunner:
                         StrategyVote(strategy.name, symbol, signal, filtered_reason="hold")
                     )
                     continue
+
+                # Portfolio pre-flight: skip SELL when nothing is held, skip BUY
+                # when the quote balance is empty.  The risk pipeline handles
+                # finer-grained checks; these guards just prevent noise signals.
+                if portfolio is not None:
+                    if signal.signal_type == SignalType.SELL and symbol not in portfolio.positions:
+                        logger.debug(
+                            "Skipping SELL from %s for %s — no open position",
+                            strategy.name,
+                            symbol,
+                        )
+                        symbol_votes.append(
+                            StrategyVote(
+                                strategy.name, symbol, signal, filtered_reason="no_position"
+                            )
+                        )
+                        continue
+                    if signal.signal_type == SignalType.BUY and portfolio.balance_quote <= 0:
+                        logger.debug(
+                            "Skipping BUY from %s for %s — zero quote balance",
+                            strategy.name,
+                            symbol,
+                        )
+                        symbol_votes.append(
+                            StrategyVote(strategy.name, symbol, signal, filtered_reason="no_funds")
+                        )
+                        continue
+
                 if signal.confidence < self._min_confidence:
                     logger.debug(
                         "Signal from %s for %s below min confidence (%.2f < %.2f)",
@@ -121,18 +166,27 @@ class StrategyRunner:
             votes[symbol] = symbol_votes
         return StrategyEvaluation(signals=signals, votes=votes)
 
-    def _evaluate_ensemble(self, analyses: dict[str, MarketAnalysis]) -> StrategyEvaluation:
+    def _evaluate_ensemble(
+        self,
+        analyses: dict[str, MarketAnalysis],
+        portfolio: Portfolio | None,
+    ) -> StrategyEvaluation:
         signals: list[TradeSignal] = []
         votes: dict[str, list[StrategyVote]] = {}
         for _symbol, analysis in analyses.items():
             symbol_votes: list[StrategyVote] = []
-            consensus = self._vote(analysis, symbol_votes)
+            consensus = self._vote(analysis, symbol_votes, portfolio)
             votes[analysis.symbol] = symbol_votes
             if consensus is not None:
                 signals.append(consensus)
         return StrategyEvaluation(signals=signals, votes=votes)
 
-    def _vote(self, analysis: MarketAnalysis, out_votes: list[StrategyVote]) -> TradeSignal | None:
+    def _vote(
+        self,
+        analysis: MarketAnalysis,
+        out_votes: list[StrategyVote],
+        portfolio: Portfolio | None,
+    ) -> TradeSignal | None:
         """Aggregate strategy signals for a single symbol via weighted voting."""
         raw_signals: list[TradeSignal] = []
         for strategy in self._strategies:
@@ -149,6 +203,31 @@ class StrategyRunner:
                 )
                 continue
             if signal is not None and signal.is_actionable:
+                # Portfolio pre-flight (same logic as individual mode)
+                if portfolio is not None:
+                    if (
+                        signal.signal_type == SignalType.SELL
+                        and analysis.symbol not in portfolio.positions
+                    ):
+                        out_votes.append(
+                            StrategyVote(
+                                strategy.name,
+                                analysis.symbol,
+                                signal,
+                                filtered_reason="no_position",
+                            )
+                        )
+                        continue
+                    if signal.signal_type == SignalType.BUY and portfolio.balance_quote <= 0:
+                        out_votes.append(
+                            StrategyVote(
+                                strategy.name,
+                                analysis.symbol,
+                                signal,
+                                filtered_reason="no_funds",
+                            )
+                        )
+                        continue
                 raw_signals.append(signal)
                 out_votes.append(StrategyVote(strategy.name, analysis.symbol, signal))
                 logger.debug(
