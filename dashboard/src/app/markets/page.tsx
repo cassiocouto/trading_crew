@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { CandlestickChart } from "@/components/CandlestickChart";
+import { useState, useEffect, useMemo } from "react";
+import { CandlestickChart, type OverlayLine } from "@/components/CandlestickChart";
+import { HelpTooltip } from "@/components/HelpTooltip";
 import {
   useMarketOHLCV,
   useMarketSymbols,
@@ -11,12 +12,27 @@ import {
   useLatestCycle,
   useStrategyStats,
 } from "@/hooks/useApi";
-import type { OHLCVBar, OrderResponse, FailedOrderResponse, SignalResponse, StrategyStatsResponse } from "@/types";
+import {
+  emaAligned,
+  bollingerAligned,
+  rsiAligned,
+  macdAligned,
+} from "@/lib/indicators";
+import type {
+  OHLCVBar,
+  OrderResponse,
+  FailedOrderResponse,
+  SignalResponse,
+  StrategyStatsResponse,
+} from "@/types";
 
-// Auto-refresh intervals for the markets page
-const REFRESH_TICKER_MS = 15_000;   // ticker prices + cycle counter
-const REFRESH_SIGNALS_MS = 30_000;  // signals + orders
-const REFRESH_CHART_MS = 60_000;    // OHLCV candles (same as default)
+// ---------------------------------------------------------------------------
+// Refresh intervals
+// ---------------------------------------------------------------------------
+
+const REFRESH_TICKER_MS = 15_000;
+const REFRESH_SIGNALS_MS = 30_000;
+const REFRESH_CHART_MS = 60_000;
 
 const TIMEFRAMES = [
   { label: "1H", value: "1h" },
@@ -27,6 +43,181 @@ const TIMEFRAMES = [
 const OHLCV_LIMIT = 200;
 const SIDEBAR_ORDER_LIMIT = 25;
 const SIGNALS_LIMIT = 30;
+
+// ---------------------------------------------------------------------------
+// Strategy overlay definitions
+// ---------------------------------------------------------------------------
+
+interface StrategyDef {
+  id: string;
+  label: string;
+  /** Primary color used for the toggle pill border and the first overlay line. */
+  color: string;
+  /** Shown in the HelpTooltip next to the toggle pill. */
+  description: string;
+  /** Shown in the native title tooltip on hover (lists indicator names). */
+  indicatorLabels: string[];
+  buildOverlays: (bars: OHLCVBar[]) => OverlayLine[];
+}
+
+const STRATEGY_DEFS: StrategyDef[] = [
+  {
+    id: "ema_crossover",
+    label: "EMA Crossover",
+    color: "#f59e0b",
+    description:
+      "Buys when the fast 12-period EMA crosses above the slow 50-period EMA and " +
+      "price is above the fast EMA. Sells on the reverse crossover. " +
+      "Confidence scales with the spread between the two EMAs.",
+    indicatorLabels: ["EMA 12", "EMA 50"],
+    buildOverlays: (bars) => [
+      {
+        id: "ema-fast",
+        label: "EMA 12",
+        color: "#f59e0b",
+        lineStyle: "solid",
+        data: emaAligned(bars, 12),
+      },
+      {
+        id: "ema-slow",
+        label: "EMA 50",
+        color: "#3b82f6",
+        lineStyle: "solid",
+        data: emaAligned(bars, 50),
+      },
+    ],
+  },
+  {
+    id: "bollinger_bands",
+    label: "Bollinger Bands",
+    color: "#8b5cf6",
+    description:
+      "Fires when price is within 10% of either Bollinger Band edge (20-period SMA ± 2σ). " +
+      "Buys near the lower band, sells near the upper band. " +
+      "Confidence scales with proximity to the edge.",
+    indicatorLabels: ["BB Upper", "BB Middle", "BB Lower"],
+    buildOverlays: (bars) => {
+      const bb = bollingerAligned(bars);
+      return [
+        { id: "bb-upper", label: "BB Upper", color: "#a78bfa", lineStyle: "dashed", data: bb.upper },
+        { id: "bb-mid", label: "BB Middle", color: "#6b7280", lineStyle: "solid", data: bb.middle },
+        { id: "bb-lower", label: "BB Lower", color: "#a78bfa", lineStyle: "dashed", data: bb.lower },
+      ];
+    },
+  },
+  {
+    id: "rsi_range",
+    label: "RSI Range",
+    color: "#10b981",
+    description:
+      "Buys when RSI(14) < 35 and price is in the bottom 20% of its all-candle range. " +
+      "Sells when RSI > 65 and price is in the top 20%. " +
+      "The dashed lines mark the range high/low across all loaded candles.",
+    indicatorLabels: ["RSI 14", "Overbought 70", "Oversold 30", "Range High", "Range Low"],
+    buildOverlays: (bars) => {
+      const rsiData = rsiAligned(bars, 14);
+      // range_high / range_low are scalar values — synthesised as flat series
+      const rangeHigh = bars.length > 0 ? Math.max(...bars.map((b) => b.high)) : 0;
+      const rangeLow = bars.length > 0 ? Math.min(...bars.map((b) => b.low)) : 0;
+      const flatHigh = bars.map((b) => ({ time: b.timestamp, value: rangeHigh }));
+      const flatLow = bars.map((b) => ({ time: b.timestamp, value: rangeLow }));
+      // RSI reference levels (30 / 70) — flat series in the RSI sub-pane
+      const rsiTimes = rsiData.map((d) => d.time);
+      const ob = rsiTimes.map((t) => ({ time: t, value: 70 }));
+      const os = rsiTimes.map((t) => ({ time: t, value: 30 }));
+      return [
+        {
+          id: "rsi",
+          label: "RSI 14",
+          color: "#10b981",
+          lineStyle: "solid",
+          data: rsiData,
+          pane: 1,
+          priceScaleId: "rsi",
+        },
+        {
+          id: "rsi-ob",
+          label: "Overbought (70)",
+          color: "#ef4444",
+          lineStyle: "dashed",
+          data: ob,
+          pane: 1,
+          priceScaleId: "rsi",
+        },
+        {
+          id: "rsi-os",
+          label: "Oversold (30)",
+          color: "#10b981",
+          lineStyle: "dashed",
+          data: os,
+          pane: 1,
+          priceScaleId: "rsi",
+        },
+        {
+          id: "range-high",
+          label: "Range High",
+          color: "#ef444466",
+          lineStyle: "dashed",
+          data: flatHigh,
+          pane: 0,
+        },
+        {
+          id: "range-low",
+          label: "Range Low",
+          color: "#10b98166",
+          lineStyle: "dashed",
+          data: flatLow,
+          pane: 0,
+        },
+      ];
+    },
+  },
+  {
+    id: "macd_crossover",
+    label: "MACD",
+    color: "#ef4444",
+    description:
+      "Buys whenever the MACD histogram is positive (MACD line above signal line). " +
+      "Sells whenever it is negative. Confidence scales with histogram magnitude " +
+      "relative to price, capped at 0.85.",
+    indicatorLabels: ["MACD Line", "Signal Line", "Histogram"],
+    buildOverlays: (bars) => {
+      const { line, signal, histogram } = macdAligned(bars);
+      return [
+        {
+          id: "macd-line",
+          label: "MACD",
+          color: "#3b82f6",
+          lineStyle: "solid",
+          data: line,
+          pane: 2,
+          priceScaleId: "macd",
+        },
+        {
+          id: "macd-signal",
+          label: "Signal",
+          color: "#f59e0b",
+          lineStyle: "solid",
+          data: signal,
+          pane: 2,
+          priceScaleId: "macd",
+        },
+        {
+          id: "macd-hist",
+          label: "Histogram",
+          type: "histogram",
+          color: "#6b7280",
+          data: histogram.map((d) => ({
+            ...d,
+            color: d.value >= 0 ? "#10b981" : "#ef4444",
+          })),
+          pane: 2,
+          priceScaleId: "macd",
+        },
+      ];
+    },
+  },
+];
 
 // ---------------------------------------------------------------------------
 // ATR / Volatility helpers
@@ -60,14 +251,37 @@ function volatilityRegime(atrPct: number): { label: string; color: string } {
 // ---------------------------------------------------------------------------
 
 export default function MarketsPage() {
-  const { data: symbols, isLoading: symbolsLoading, dataUpdatedAt: tickerUpdatedAt } =
-    useMarketSymbols();
+  const {
+    data: symbols,
+    isLoading: symbolsLoading,
+  } = useMarketSymbols();
+
   const [activeSymbol, setActiveSymbol] = useState<string>("");
   const [timeframe, setTimeframe] = useState("1h");
   const [showVolume, setShowVolume] = useState(false);
-  const [, setTick] = useState(0); // forces re-render every second for the live clock
+  const [, setTick] = useState(0);
 
-  // Tick every second so the "updated X s ago" counter is live
+  // Persisted strategy overlay toggles
+  const [enabledOverlays, setEnabledOverlays] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set<string>();
+    try {
+      const stored = localStorage.getItem("markets_enabled_overlays");
+      return stored ? new Set(JSON.parse(stored) as string[]) : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
+
+  // Sync overlay toggles to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("markets_enabled_overlays", JSON.stringify([...enabledOverlays]));
+    } catch {
+      // ignore quota / privacy errors
+    }
+  }, [enabledOverlays]);
+
+  // Live clock for "updated X s ago"
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1_000);
     return () => clearInterval(id);
@@ -75,8 +289,13 @@ export default function MarketsPage() {
 
   const selectedSymbol = activeSymbol || symbols?.[0]?.symbol || "";
 
-  const { data: ohlcv, isLoading: candlesLoading, dataUpdatedAt: candleUpdatedAt, isFetching: candleFetching } =
-    useMarketOHLCV(selectedSymbol, timeframe, OHLCV_LIMIT);
+  const {
+    data: ohlcv,
+    isLoading: candlesLoading,
+    dataUpdatedAt: candleUpdatedAt,
+    isFetching: candleFetching,
+  } = useMarketOHLCV(selectedSymbol, timeframe, OHLCV_LIMIT);
+
   const { data: orders, isLoading: ordersLoading } =
     useOrders(SIDEBAR_ORDER_LIMIT, undefined, selectedSymbol || undefined, REFRESH_SIGNALS_MS);
   const { data: failedOrders, isLoading: failedLoading } =
@@ -88,7 +307,7 @@ export default function MarketsPage() {
 
   const activeSymbolData = symbols?.find((s) => s.symbol === selectedSymbol);
 
-  // Strategies that have produced signals for this symbol
+  // Strategies that have produced signals for this symbol (for CycleStrategyPanel)
   const activeStrategies = signals
     ? [...new Set(signals.map((s) => s.strategy_name))]
     : [];
@@ -96,12 +315,39 @@ export default function MarketsPage() {
   const lastUpdatedSecs =
     candleUpdatedAt > 0 ? Math.round((Date.now() - candleUpdatedAt) / 1000) : null;
 
+  // ---------------------------------------------------------------------------
+  // Overlay computation
+  // ---------------------------------------------------------------------------
+
+  const overlayLines = useMemo(
+    () =>
+      STRATEGY_DEFS.filter((d) => enabledOverlays.has(d.id)).flatMap((d) =>
+        d.buildOverlays(ohlcv ?? []),
+      ),
+    [enabledOverlays, ohlcv],
+  );
+
+  // Chart height grows to accommodate RSI / MACD sub-panes
+  const hasRsiPane = enabledOverlays.has("rsi_range");
+  const hasMacdPane = enabledOverlays.has("macd_crossover");
+  const chartHeight = 420 + (hasRsiPane ? 120 : 0) + (hasMacdPane ? 150 : 0);
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Markets</h1>
-          <p className="mt-0.5 text-sm text-gray-500">Price, signals, and order history for tracked symbols.</p>
+          <h1 className="flex items-center text-xl font-semibold text-gray-900">
+            Markets
+            <HelpTooltip text="Live price candles and technical overlays for each tracked symbol. Toggle strategy indicators with the pill buttons above the chart." />
+          </h1>
+          <p className="mt-0.5 text-sm text-gray-500">
+            Price, signals, and order history for tracked symbols.
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-500 shadow-sm">
           <span
@@ -119,6 +365,7 @@ export default function MarketsPage() {
         </div>
       </div>
 
+      {/* Symbol + timeframe selectors */}
       {symbolsLoading ? (
         <div className="h-12 animate-pulse rounded-lg bg-gray-100" />
       ) : (
@@ -164,7 +411,11 @@ export default function MarketsPage() {
           <StatCard label="Ask" value={activeSymbolData.ask?.toFixed(2) ?? "—"} />
           <StatCard
             label="24h Volume"
-            value={activeSymbolData.volume_24h != null ? formatVolume(activeSymbolData.volume_24h) : "—"}
+            value={
+              activeSymbolData.volume_24h != null
+                ? formatVolume(activeSymbolData.volume_24h)
+                : "—"
+            }
           />
         </div>
       )}
@@ -174,6 +425,7 @@ export default function MarketsPage() {
         {/* Chart — 2/3 width on lg */}
         <div className="lg:col-span-2">
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            {/* Chart header */}
             <div className="mb-3 flex items-center justify-between">
               <span className="text-sm font-semibold text-gray-700">
                 {selectedSymbol} · {timeframe.toUpperCase()}
@@ -191,12 +443,67 @@ export default function MarketsPage() {
                 </label>
               </div>
             </div>
+
+            {/* Strategy toggle pills */}
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {STRATEGY_DEFS.map((def) => {
+                const on = enabledOverlays.has(def.id);
+                return (
+                  <span key={def.id} className="inline-flex items-center">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEnabledOverlays((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(def.id)) next.delete(def.id);
+                          else next.add(def.id);
+                          return next;
+                        })
+                      }
+                      title={`Uses: ${def.indicatorLabels.join(", ")}`}
+                      style={
+                        on
+                          ? { background: def.color, borderColor: def.color, color: "#fff" }
+                          : { borderColor: def.color, color: def.color }
+                      }
+                      className="rounded-full border px-2.5 py-0.5 text-xs font-medium transition-all"
+                    >
+                      {def.label}
+                    </button>
+                    <HelpTooltip text={def.description} />
+                  </span>
+                );
+              })}
+            </div>
+
+            {/* Candlestick chart */}
             {candlesLoading ? (
-              <div className="h-96 animate-pulse rounded-lg bg-gray-50" />
+              <div className="animate-pulse rounded-lg bg-gray-50" style={{ height: chartHeight }} />
             ) : (
-              <CandlestickChart data={ohlcv ?? []} height={420} showVolume={showVolume} />
+              <CandlestickChart
+                data={ohlcv ?? []}
+                height={chartHeight}
+                showVolume={showVolume}
+                overlayLines={overlayLines}
+              />
+            )}
+
+            {/* Overlay legend */}
+            {overlayLines.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                {overlayLines.map((l) => (
+                  <span key={l.id} className="flex items-center gap-1 text-xs text-gray-500">
+                    <span
+                      className="inline-block h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: l.color.replace(/[0-9a-f]{2}$/i, "ff") }}
+                    />
+                    {l.label}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
+
           {ohlcv && ohlcv.length > 0 && (
             <p className="mt-2 text-xs text-gray-400">
               {ohlcv.length} candles · populated by the trading bot each cycle
@@ -238,7 +545,6 @@ function CycleStrategyPanel({
   symbol: string;
 }) {
   const [open, setOpen] = useState(true);
-
   const statsForSymbolStrategies = strategyStats.filter((s) =>
     activeStrategies.includes(s.strategy_name),
   );
@@ -246,6 +552,7 @@ function CycleStrategyPanel({
   return (
     <SidebarPanel
       title="Cycle & Strategies"
+      helpText="A cycle is one full iteration of the trading loop: the bot fetches prices, runs all strategies, evaluates risk, and (optionally) consults the advisory AI. The cycle number increments with each pass."
       badge={
         cycleNumber != null ? (
           <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
@@ -263,10 +570,10 @@ function CycleStrategyPanel({
             {cycleNumber != null ? `#${cycleNumber}` : "—"}
           </span>
         </div>
-
         <div>
           <p className="mb-1.5 text-xs text-gray-500">
-            Strategies active for <span className="font-medium text-gray-700">{symbol || "—"}</span>
+            Strategies active for{" "}
+            <span className="font-medium text-gray-700">{symbol || "—"}</span>
           </p>
           {activeStrategies.length === 0 ? (
             <p className="text-xs text-gray-400">No signals generated yet for this symbol.</p>
@@ -283,14 +590,15 @@ function CycleStrategyPanel({
                         <span>
                           <span className="font-medium text-red-500">{s.sell_signals}</span> sell
                         </span>
-                        <span>
-                          {(s.avg_confidence * 100).toFixed(0)}% avg conf
-                        </span>
+                        <span>{(s.avg_confidence * 100).toFixed(0)}% avg conf</span>
                       </div>
                     </li>
                   ))
                 : activeStrategies.map((name) => (
-                    <li key={name} className="rounded-lg bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-800">
+                    <li
+                      key={name}
+                      className="rounded-lg bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-800"
+                    >
                       {name}
                     </li>
                   ))}
@@ -306,13 +614,20 @@ function CycleStrategyPanel({
 // Signals panel
 // ---------------------------------------------------------------------------
 
-function SignalsPanel({ signals, loading }: { signals: SignalResponse[]; loading: boolean }) {
+function SignalsPanel({
+  signals,
+  loading,
+}: {
+  signals: SignalResponse[];
+  loading: boolean;
+}) {
   const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
 
   return (
     <SidebarPanel
       title="Latest Signals"
+      helpText="A signal is a BUY or SELL recommendation produced by one of the trading strategies. Signals above the minimum confidence threshold are passed to the risk pipeline for position sizing and approval."
       badge={
         signals.length > 0 ? (
           <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
@@ -325,7 +640,9 @@ function SignalsPanel({ signals, loading }: { signals: SignalResponse[]; loading
     >
       {loading ? (
         <div className="space-y-2">
-          {[0, 1, 2].map((i) => <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />)}
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />
+          ))}
         </div>
       ) : signals.length === 0 ? (
         <p className="py-4 text-center text-xs text-gray-400">No signals for this symbol yet.</p>
@@ -349,9 +666,7 @@ function SignalsPanel({ signals, loading }: { signals: SignalResponse[]; loading
                   <span className="text-xs text-gray-500">
                     {(sig.confidence * 100).toFixed(0)}% · {sig.strength}
                   </span>
-                  {sig.risk_verdict && (
-                    <RiskVerdictBadge verdict={sig.risk_verdict} />
-                  )}
+                  {sig.risk_verdict && <RiskVerdictBadge verdict={sig.risk_verdict} />}
                 </div>
               </button>
               {expanded === sig.id && sig.reason && (
@@ -376,7 +691,8 @@ function VolatilityPanel({ bars }: { bars: OHLCVBar[] }) {
 
   const atr = calcATR(bars, 14);
   const lastClose = bars.at(-1)?.close ?? null;
-  const atrPct = atr != null && lastClose != null && lastClose > 0 ? (atr / lastClose) * 100 : null;
+  const atrPct =
+    atr != null && lastClose != null && lastClose > 0 ? (atr / lastClose) * 100 : null;
   const regime = atrPct != null ? volatilityRegime(atrPct) : null;
 
   const window20 = bars.slice(-20);
@@ -390,6 +706,7 @@ function VolatilityPanel({ bars }: { bars: OHLCVBar[] }) {
   return (
     <SidebarPanel
       title="Volatility"
+      helpText="Volatility is measured using ATR (Average True Range). Low < 1%, Normal 1–2%, Elevated 2–4%, High > 4% of last close. The regime classification drives stop-loss sizing when the ATR method is selected."
       badge={
         regime ? (
           <span className={`text-xs font-semibold ${regime.color}`}>{regime.label}</span>
@@ -404,11 +721,15 @@ function VolatilityPanel({ bars }: { bars: OHLCVBar[] }) {
         </p>
       ) : (
         <dl className="space-y-3">
-          <VolRow label="ATR (14)" value={atr != null ? atr.toFixed(4) : "—"} />
+          <VolRow
+            label="ATR (14)"
+            value={atr != null ? atr.toFixed(4) : "—"}
+            hint="Average True Range over the last 14 bars — a measure of price volatility in absolute terms."
+          />
           <VolRow
             label="ATR %"
             value={atrPct != null ? `${atrPct.toFixed(2)}%` : "—"}
-            hint="ATR as % of last close"
+            hint="ATR as % of last close. Used to classify the volatility regime and size ATR-based stop losses."
           />
           <VolRow
             label="20-bar range"
@@ -421,7 +742,7 @@ function VolatilityPanel({ bars }: { bars: OHLCVBar[] }) {
           <VolRow
             label="Range %"
             value={rangePct != null ? `${rangePct.toFixed(2)}%` : "—"}
-            hint="(High − Low) / Low over last 20 bars"
+            hint="(High − Low) / Low over the last 20 bars — how much price has moved in percentage terms."
           />
         </dl>
       )}
@@ -432,16 +753,9 @@ function VolatilityPanel({ bars }: { bars: OHLCVBar[] }) {
 function VolRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <dt className="flex items-center gap-1 text-xs text-gray-500">
+      <dt className="flex items-center text-xs text-gray-500">
         {label}
-        {hint && (
-          <span className="group relative cursor-default">
-            <span className="text-gray-300">ⓘ</span>
-            <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden w-44 -translate-x-1/2 rounded bg-gray-800 px-2 py-1 text-xs text-white shadow group-hover:block">
-              {hint}
-            </span>
-          </span>
-        )}
+        {hint && <HelpTooltip text={hint} />}
       </dt>
       <dd className="text-xs font-semibold text-gray-800">{value}</dd>
     </div>
@@ -470,14 +784,19 @@ function OrdersPanel({ orders, loading }: { orders: OrderResponse[]; loading: bo
     >
       {loading ? (
         <div className="space-y-2">
-          {[0, 1, 2].map((i) => <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />)}
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />
+          ))}
         </div>
       ) : orders.length === 0 ? (
         <p className="py-4 text-center text-xs text-gray-400">No orders for this symbol.</p>
       ) : (
         <ul className="divide-y divide-gray-50">
           {orders.map((o) => (
-            <li key={o.id} className="flex items-start justify-between gap-2 py-2 first:pt-0 last:pb-0">
+            <li
+              key={o.id}
+              className="flex items-start justify-between gap-2 py-2 first:pt-0 last:pb-0"
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <SideBadge side={o.side} />
@@ -502,7 +821,13 @@ function OrdersPanel({ orders, loading }: { orders: OrderResponse[]; loading: bo
 // Failed orders panel
 // ---------------------------------------------------------------------------
 
-function FailedOrdersPanel({ orders, loading }: { orders: FailedOrderResponse[]; loading: boolean }) {
+function FailedOrdersPanel({
+  orders,
+  loading,
+}: {
+  orders: FailedOrderResponse[];
+  loading: boolean;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -520,7 +845,9 @@ function FailedOrdersPanel({ orders, loading }: { orders: FailedOrderResponse[];
     >
       {loading ? (
         <div className="space-y-2">
-          {[0, 1].map((i) => <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />)}
+          {[0, 1].map((i) => (
+            <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />
+          ))}
         </div>
       ) : orders.length === 0 ? (
         <p className="py-4 text-center text-xs text-gray-400">No unresolved failures.</p>
@@ -552,12 +879,14 @@ function FailedOrdersPanel({ orders, loading }: { orders: FailedOrderResponse[];
 
 function SidebarPanel({
   title,
+  helpText,
   badge,
   open,
   onToggle,
   children,
 }: {
   title: string;
+  helpText?: string;
   badge?: React.ReactNode;
   open: boolean;
   onToggle: () => void;
@@ -571,10 +900,11 @@ function SidebarPanel({
       >
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-gray-700">{title}</span>
+          {helpText && <HelpTooltip text={helpText} />}
           {badge}
         </div>
         <svg
-          className={`h-4 w-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -611,9 +941,7 @@ function RiskVerdictBadge({ verdict }: { verdict: string }) {
       : v === "rejected"
         ? "bg-red-50 text-red-600"
         : "bg-gray-50 text-gray-500";
-  return (
-    <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${cls}`}>{verdict}</span>
-  );
+  return <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${cls}`}>{verdict}</span>;
 }
 
 function ConfidenceBar({ confidence }: { confidence: number }) {
@@ -648,7 +976,9 @@ function StatusBadge({ status }: { status: string }) {
     pending: "bg-amber-100 text-amber-700",
   };
   return (
-    <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${colors[status.toLowerCase()] ?? "bg-gray-100 text-gray-500"}`}>
+    <span
+      className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${colors[status.toLowerCase()] ?? "bg-gray-100 text-gray-500"}`}
+    >
       {status}
     </span>
   );
@@ -671,5 +1001,10 @@ function formatVolume(v: number): string {
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

@@ -416,6 +416,89 @@ Confidence is a float in `[0.0, 1.0]`. The risk pipeline will reject signals bel
 - `0.80–0.95` — strong conviction
 - Avoid `1.0` — nothing is ever 100% certain
 
+### Step 4: Add a dashboard overlay (optional)
+
+The Markets page in the dashboard can display your strategy's indicator lines
+directly on the candlestick chart.  This step is purely cosmetic — the bot
+runs fine without it — but it is strongly recommended for any strategy that is
+maintained long-term.
+
+**Where the config lives:** `dashboard/src/app/markets/page.tsx`, in the
+`STRATEGY_DEFS` constant near the top of the file.  Each entry implements the
+`StrategyDef` interface:
+
+```ts
+interface StrategyDef {
+  id: string;               // must match the strategy's `name` attribute
+  label: string;            // display name for the toggle pill
+  color: string;            // primary colour (used for the pill border)
+  description: string;      // shown in the ? help tooltip
+  indicatorLabels: string[]; // shown on the native tooltip on hover
+  buildOverlays: (bars: OHLCVBar[]) => OverlayLine[];
+}
+```
+
+**`OverlayLine` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Stable key (used for imperative series tracking — must be unique) |
+| `label` | `string` | Shown in the chart crosshair legend |
+| `color` | `string` | Line colour (hex) |
+| `lineStyle` | `"solid" \| "dashed" \| "dotted"` | Optional; defaults to solid |
+| `type` | `"line" \| "histogram"` | Optional; defaults to `"line"` |
+| `data` | `{ time: number; value: number; color?: string }[]` | Time-aligned values |
+| `pane` | `number` | 0 = main price pane (default), 1 = first sub-pane, 2 = second |
+| `priceScaleId` | `string` | Price scale identifier; use a unique id for oscillators |
+
+**Pane conventions:**
+- `pane: 0` — overlays on the main candlestick chart (EMA, Bollinger, price levels)
+- `pane: 1` — first sub-pane, for 0–100 oscillators such as RSI
+- `pane: 2` — second sub-pane, for zero-centred oscillators such as MACD
+
+**Example — adding `my_strategy` with an RSI overlay:**
+
+```ts
+// In STRATEGY_DEFS inside dashboard/src/app/markets/page.tsx:
+{
+  id: "my_strategy",        // matches MyStrategy.name
+  label: "My Strategy",
+  color: "#6366f1",
+  description: "Buys when RSI dips below 30 and …",
+  indicatorLabels: ["RSI 14"],
+  buildOverlays: (bars) => {
+    const rsiData = rsiAligned(bars, 14);          // from @/lib/indicators
+    const obLine = rsiData.map((d) => ({ ...d, value: 30 }));
+    return [
+      {
+        id: "my-rsi",
+        label: "RSI 14",
+        color: "#6366f1",
+        data: rsiData,
+        pane: 1,
+        priceScaleId: "my-rsi",
+      },
+      {
+        id: "my-rsi-os",
+        label: "Oversold (30)",
+        color: "#ef4444",
+        lineStyle: "dashed",
+        data: obLine,
+        pane: 1,
+        priceScaleId: "my-rsi",
+      },
+    ];
+  },
+},
+```
+
+**Adding a new indicator computation:**
+
+If your strategy uses an indicator not already in `dashboard/src/lib/indicators.ts`,
+add it there using the same rolling-window approach as the existing helpers.
+Mirror the exact formula from `TechnicalAnalyzer` in Python so the chart
+overlay matches the backend's decision values.
+
 ---
 
 ## 6. Adding a New Indicator
