@@ -57,17 +57,16 @@ cd trading_crew
 # Install everything
 make dev
 
-# Set up your environment file
+# Set up secrets
 cp .env.example .env
+# Open .env — the only required change for your first run is your OpenAI key:
+#   OPENAI_API_KEY=sk-...
+
+# Set up non-secret settings (optional — defaults are fine for paper trading)
+cp src/trading_crew/config/settings.yaml.example src/trading_crew/config/settings.yaml
 ```
 
-Open `.env` in your editor. The only required change to get started is your OpenAI key:
-
-```
-OPENAI_API_KEY=sk-...
-```
-
-Everything else can stay at its default for your first run.
+Everything can stay at its default for your first run. The only thing you must fill in is your OpenAI key in `.env`.
 
 ---
 
@@ -101,47 +100,72 @@ The bot will run indefinitely, waking every 15 minutes. Press `Ctrl+C` to stop c
 
 ---
 
-## 3. Understanding the Configuration File
+## 3. Understanding the Configuration Files
 
-All settings live in your `.env` file. Here is a tour of the most important ones, grouped by what they do.
+Configuration uses a two-layer model. **Secrets** stay in `.env`. **Everything else** lives in `settings.yaml`.
 
-### Exchange and trading mode
+| File | What goes here | Version-controlled? |
+|------|---------------|---------------------|
+| `.env` | API keys, tokens, `DATABASE_URL` | No (gitignored) |
+| `settings.yaml` | All non-secret settings | No (gitignored) |
 
-```env
-TRADING_MODE=paper          # "paper" (safe) or "live" (real orders)
-EXCHANGE_ID=binance         # Any CCXT exchange ID (binance, kraken, bybit, novadax…)
-EXCHANGE_API_KEY=           # Your exchange API key (only needed for live)
-EXCHANGE_API_SECRET=        # Your exchange API secret (only needed for live)
-EXCHANGE_SANDBOX=true       # Use the exchange's testnet (recommended for testing)
-```
+Both files have committed example templates: `.env.example` and `settings.yaml.example`.
 
-### What to trade
+### Secrets (`.env`)
 
 ```env
-SYMBOLS=["BTC/USDT"]        # JSON list of trading pairs, e.g. ["BTC/USDT","ETH/USDT"]
-DEFAULT_TIMEFRAME=1h        # Candle timeframe for technical analysis
+EXCHANGE_API_KEY=           # Your exchange API key (only needed for live trading)
+EXCHANGE_API_SECRET=        # Your exchange API secret (only needed for live trading)
+DATABASE_URL=sqlite:///trading_crew.db   # Connection string
+OPENAI_API_KEY=sk-...       # Required for the advisory crew
+# TELEGRAM_BOT_TOKEN=       # Optional notifications
+# TELEGRAM_CHAT_ID=
+# DASHBOARD_API_KEY=        # Optional: protect the REST API with a key
 ```
 
-### How often to run
+### Non-secret settings (`settings.yaml`)
 
-```env
-LOOP_INTERVAL_SECONDS=900   # 15 minutes between cycles (default is intentionally slow)
+Open `settings.yaml` to configure how the bot behaves. Here are the most important settings:
+
+```yaml
+# Trading mode: "paper" (safe, default) or "live" (real orders)
+trading_mode: "paper"
+
+# Exchange
+exchange_id: "binance"        # Any CCXT exchange ID
+exchange_sandbox: false       # true = use the exchange testnet
+
+# What to trade
+symbols:
+  - "BTC/USDT"
+  # - "ETH/USDT"             # add more pairs here
+default_timeframe: "1h"       # Candle timeframe for technical analysis
+
+# How often to run
+loop_interval_seconds: 900    # 15 minutes (default, intentionally slow)
 ```
 
-Shorter intervals mean more activity and more LLM token cost. 15 minutes is a deliberate default that keeps daily costs manageable (see Section 11).
+Shorter loop intervals mean more activity and more LLM token cost when the advisory crew is active. 15 minutes keeps daily costs manageable (see Section 11).
 
-### Starting balance for paper trading
-
-```env
-INITIAL_BALANCE_QUOTE=10000.0   # Simulated starting balance in the quote currency (e.g. USDT)
+```yaml
+# Starting balance for paper trading only
+# (ignored in live mode — the real exchange balance is used)
+initial_balance_quote: 10000.0
 ```
 
-### Notifications
+### The Settings page
 
-```env
-TELEGRAM_BOT_TOKEN=         # Optional: your Telegram bot token
-TELEGRAM_CHAT_ID=           # Optional: your Telegram chat ID
+All non-secret settings can also be edited directly from the dashboard **Settings page** at [http://localhost:3000/settings](http://localhost:3000/settings) — no need to touch `settings.yaml` by hand. Changes take effect on the next bot restart (most settings) or immediately via the Controls page (execution and advisory toggles).
+
+### Priority order
+
+If you set a value in an environment variable or in `.env`, it takes priority over `settings.yaml`:
+
 ```
+environment variables  >  .env  >  settings.yaml  >  built-in defaults
+```
+
+This means you can always override a setting temporarily via an environment variable without editing any file.
 
 ---
 
@@ -167,36 +191,29 @@ Note that not all exchanges support sandboxes. If you set `EXCHANGE_SANDBOX=true
 
 ## 5. Understanding Trading Modes
 
-There are three dimensions of "mode" in Trading Crew. They are independent and can be combined.
+There are two independent dimensions of "mode" in Trading Crew.
 
-### Trading mode (`TRADING_MODE`)
+### Trading mode (`trading_mode` in `settings.yaml`)
 
 | Value | What happens |
 |-------|-------------|
-| `paper` | Orders are simulated locally. No exchange calls for order placement. Safe for development. |
+| `paper` | Orders are simulated locally. No exchange calls for order placement. Safe for development. **Default.** |
 | `live` | Orders are placed on the real exchange via CCXT. Requires valid API credentials. |
 
-### Market pipeline mode (`MARKET_PIPELINE_MODE`)
+### Advisory mode
 
-Controls how market data and technical analysis are run.
+The advisory crew is a set of AI agents (powered by CrewAI) that activates **only when market conditions are uncertain**. The rest of the time — clear trends, low volatility, confident strategy signals — the bot runs entirely on deterministic logic with zero LLM calls.
 
-| Value | What happens |
-|-------|-------------|
-| `deterministic` | Prices are fetched and indicators computed without any LLM. Fast and cheap. **Default.** |
-| `crewai` | The Market Intelligence Crew (AI agents) handles data gathering and analysis. |
-| `hybrid` | Both paths run. Useful for comparing AI vs deterministic analysis. |
+The advisory crew activates when the `UncertaintyScorer` computes a score above `advisory_activation_threshold` (default 0.6). You can observe activations on the **Agents** page in the dashboard.
 
-### Strategy pipeline mode (`STRATEGY_PIPELINE_MODE`)
+| Setting | Default | What it controls |
+|---------|---------|-----------------|
+| `advisory_enabled` | `true` | Whether the advisory crew can activate at all |
+| `advisory_activation_threshold` | `0.6` | Uncertainty score required to trigger the crew |
 
-Controls how trade signals are generated and risk-validated.
+The advisory crew requires an OpenAI API key (or compatible LLM). If none is configured, it is automatically disabled and the bot runs in fully deterministic mode.
 
-| Value | What happens |
-|-------|-------------|
-| `deterministic` | Built-in strategies (EMA Crossover, Bollinger, RSI) run without LLM. **Default.** |
-| `crewai` | The Strategy Crew (AI agents) generates signals. |
-| `hybrid` | Both paths run. |
-
-**The practical recommendation:** Start with both pipelines on `deterministic`. This is the most reliable, cheapest, and fastest mode. Once you are comfortable, experiment with `hybrid` to see if the AI agents add value.
+**The practical recommendation:** Keep the defaults. The deterministic pipeline handles the vast majority of cycles. The advisory crew adds a human-like sanity check only when conditions are ambiguous.
 
 ---
 
@@ -243,9 +260,10 @@ Every signal passes through a deterministic risk pipeline before any order is pl
 
 Signals below the configured minimum confidence are ignored immediately:
 
-```env
-# In the risk settings section of .env / Settings:
-# min_confidence = 0.5 (default)
+```yaml
+# In settings.yaml (under the risk: section):
+risk:
+  min_confidence: 0.5   # default
 ```
 
 ### Circuit breaker
@@ -260,10 +278,10 @@ The bot never allocates more than `max_position_size_pct` (default 10%) of the p
 
 Every order request includes a stop-loss price. Two methods are available:
 
-```env
-STOP_LOSS_METHOD=fixed     # Stop at a fixed percentage below entry (e.g. 3%)
-STOP_LOSS_METHOD=atr       # Stop at ATR(14) * multiplier below entry (adapts to volatility)
-ATR_STOP_MULTIPLIER=2.0    # Only applies when using ATR method
+```yaml
+# In settings.yaml:
+stop_loss_method: "fixed"    # "fixed" = fixed % below entry; "atr" = ATR-adaptive
+atr_stop_multiplier: 2.0     # only applies when stop_loss_method is "atr"
 ```
 
 ATR-based stops are tighter in calm markets and wider in volatile ones, which reduces whipsaw stop-outs.
@@ -281,8 +299,9 @@ When this guard is on (the default), the bot refuses to buy more of an asset onc
 
 **In plain terms:** Imagine you bought BTC at $100K with a stop-loss at $97K. The market drops to $95K and a new buy signal fires. The guard sees that $95K is below your $97K stop and rejects the signal — you are not throwing good money after bad while the position is already at risk. If the market drops further and the stop-loss triggers, the position closes normally. The next time you buy BTC (fresh start, no open position), the guard resets and the new buy sets a new bar.
 
-```env
-ANTI_AVERAGING_DOWN=true    # default; set to false to disable
+```yaml
+# In settings.yaml:
+anti_averaging_down: true    # default; set to false to disable
 ```
 
 **The threshold is your stop-loss.** You control how aggressive it is by adjusting `STOP_LOSS_METHOD` and `STOP_LOSS_PCT`. A wider stop gives more room before the guard activates; a tighter stop is more conservative.
@@ -295,9 +314,11 @@ When this guard is on (the default), the bot will not sell a position at a loss 
 
 This is intentional — **the bot prefers to hold rather than sell at a confirmed loss**. Stop-loss exits are not affected; those bypass this guard entirely and fire regardless of break-even.
 
-```env
-SELL_GUARD_MODE=break_even    # default; set to "none" to disable
-RISK__MIN_PROFIT_MARGIN_PCT=0.0   # set e.g. 1.0 to require 1% profit above break-even
+```yaml
+# In settings.yaml:
+sell_guard_mode: "break_even"   # default; set to "none" to disable
+risk:
+  min_profit_margin_pct: 0.0    # set e.g. 1.0 to require 1% profit above break-even
 ```
 
 ### What to do when the circuit breaker trips
@@ -336,25 +357,34 @@ make docker-up
 | Page | What you'll see |
 |------|----------------|
 | **Overview** | Current balance, total P&L, open positions, last cycle summary, circuit breaker status, agent activity grid |
+| **Markets** | Candlestick chart with volume histogram for each tracked symbol; switch between 1H, 4H, 1D timeframes |
 | **Orders** | All orders with status filters (open, filled, cancelled, failed). Per-position P&L cards. |
 | **Signals** | Live signal feed with strategy tags, signal direction (BUY/SELL), and confidence bars |
 | **History** | Equity curve chart, strategy breakdown table (signals generated vs. orders filled), cycle history log |
 | **Agents** | Per-agent pipeline mode, last activity timestamp, estimated token usage |
+| **Controls** | Live toggles to pause/resume the execution agent and advisory crew without restarting the bot |
 | **Backtest** | Run a backtest over stored historical data directly from the browser |
+| **Settings** | View and edit all non-secret settings via a web form; saves to `settings.yaml` |
 
 ### Live updates
 
 The dashboard updates automatically via WebSocket. You don't need to refresh — new signals, filled orders, and completed cycles appear within a few seconds.
 
+### Live controls
+
+The **Controls** page lets you pause and resume the execution agent and advisory crew without restarting the bot. Changes take effect within one cycle interval (15 minutes by default). Use this to temporarily disable trading while you review a market situation, or to disable the advisory crew if you want to reduce LLM costs for a period.
+
+The advisory toggle is locked if no valid OpenAI API key is configured.
+
 ### Securing the dashboard
 
-If the dashboard is accessible from a network (not just localhost), protect it:
+If the dashboard is accessible from a network (not just localhost), protect it by setting this in `.env`:
 
 ```env
 DASHBOARD_API_KEY=your-secret-key
 ```
 
-Set this in your `.env`. The frontend sends the key automatically; external tools must include the `X-API-Key` header.
+The frontend sends the key automatically; external tools must include the `X-API-Key` header.
 
 ---
 
@@ -472,40 +502,41 @@ TELEGRAM_CHAT_ID=your-chat-id
 
 ## 11. Token Costs and Budget Control
 
-The AI agents (when using `crewai` or `hybrid` pipeline modes) consume LLM tokens on every crew run. Here is how to understand and control the cost.
+The **advisory crew** is the only component that consumes LLM tokens. It activates only when the `UncertaintyScorer` determines that conditions are ambiguous enough to warrant AI review. In calm, trending markets the advisory crew may never activate — meaning many cycles run with zero token cost.
 
 ### How much does it cost?
 
-It depends on your loop interval and which models you use. As a rough estimate with GPT-4o mini at `LOOP_INTERVAL_SECONDS=900` (96 cycles per day):
+It depends on your loop interval, how often the advisory activates, and which model you use. As a rough estimate with GPT-4o mini at `loop_interval_seconds: 900` (96 cycles per day) and advisory activating on 20% of cycles:
 
-| Usage pattern | Tokens/cycle | Daily cost (approx) |
-|--------------|-------------|-------------------|
-| Light (lean prompts) | ~2,500 | ~$0.06 |
-| Typical | ~10,000 | ~$0.23 |
-| Heavy (verbose context) | ~25,000 | ~$0.58 |
+| Advisory activations/day | Tokens/cycle | Daily cost (approx) |
+|--------------------------|-------------|-------------------|
+| ~5 (rare activation) | ~4,000 | ~$0.01 |
+| ~20 (typical) | ~4,000 | ~$0.05 |
+| ~96 (every cycle) | ~4,000 | ~$0.23 |
 
-With `STRATEGY_PIPELINE_MODE=deterministic` and `MARKET_PIPELINE_MODE=deterministic` (the defaults), **no LLM tokens are consumed at all** — the system runs entirely on deterministic logic.
+If `advisory_enabled: false` in `settings.yaml`, or if no OpenAI API key is set, **no LLM tokens are consumed at all** — the system runs entirely on deterministic logic.
 
 ### Budget guards
 
-```env
-DAILY_TOKEN_BUDGET_ENABLED=true
-DAILY_TOKEN_BUDGET_TOKENS=600000
+```yaml
+# In settings.yaml:
+daily_token_budget_enabled: true
+daily_token_budget_tokens: 600000
 
 # What to do when the budget is reached:
-# off          — ignore budget (keep running)
-# strategy_only — disable Strategy crew for the rest of the UTC day
-# hard_stop    — disable ALL LLM crews for the rest of the UTC day
-TOKEN_BUDGET_DEGRADE_MODE=strategy_only
+# "normal"      — disable advisory crew for the rest of the UTC day, keep everything else
+# "budget_stop" — disable ALL LLM usage for the rest of the UTC day
+token_budget_degrade_mode: "normal"
 ```
 
 Budget counters reset at UTC midnight automatically.
 
 ### Cost control tips
 
-- **Increase `LOOP_INTERVAL_SECONDS`** — halving cycles halves cost. Try 1800 (30 min) or 3600 (1 hour).
-- **Use `deterministic` mode** — no LLM cost at all, still fully functional.
-- **Use a cheaper model** — set `OPENAI_MODEL_NAME=gpt-4o-mini` instead of GPT-4.
+- **Increase `loop_interval_seconds`** — halving cycles halves advisory activation frequency. Try 1800 (30 min) or 3600 (1 hour).
+- **Raise `advisory_activation_threshold`** — a higher threshold (e.g. 0.75) means the advisory crew fires less often.
+- **Disable advisory entirely** — set `advisory_enabled: false` for zero LLM cost; the deterministic pipeline is fully functional on its own.
+- **Use a cheaper model** — set `OPENAI_MODEL_NAME=gpt-4o-mini` in `.env` instead of GPT-4.
 - **Use a local LLM** — configure `OPENAI_API_BASE` to point at a local Ollama instance.
 
 ---
@@ -514,34 +545,41 @@ Budget counters reset at UTC midnight automatically.
 
 Only do this after you have run paper trading for at least several days and are satisfied with the strategy behaviour.
 
-**Step 1:** Review your risk settings carefully.
+**Step 1:** Review your risk settings carefully. Edit `settings.yaml`:
 
-```env
-RISK__MAX_POSITION_SIZE_PCT=5      # Start conservative — 5% max per position
-RISK__MAX_PORTFOLIO_EXPOSURE_PCT=30  # Only 30% of portfolio in positions total
-RISK__MAX_DRAWDOWN_PCT=10          # Tight circuit breaker at 10%
-RISK__DEFAULT_STOP_LOSS_PCT=2      # 2% stop-loss
+```yaml
+# Start conservative — tighten these before going live
+risk:
+  max_position_size_pct: 5        # 5% max per position (default is 10%)
+  max_portfolio_exposure_pct: 30  # Only 30% of portfolio in positions total
+  max_drawdown_pct: 10            # Circuit breaker at 10% (default is 15%)
+  default_stop_loss_pct: 2        # 2% stop-loss
 ```
 
 **Step 2:** Get API credentials from your exchange. Create a key with **trade permissions only** — never give withdrawal permissions to a bot.
 
-**Step 3:** Add your credentials to `.env`:
+**Step 3:** Add your credentials to `.env` and switch the trading mode in `settings.yaml`:
 
+In `.env`:
 ```env
-TRADING_MODE=live
-EXCHANGE_ID=binance
 EXCHANGE_API_KEY=your-real-key
 EXCHANGE_API_SECRET=your-real-secret
-EXCHANGE_SANDBOX=false
+```
+
+In `settings.yaml`:
+```yaml
+trading_mode: "live"
+exchange_id: "binance"
+exchange_sandbox: false
 ```
 
 **Step 4:** Start with a small balance. Do not fund the bot with more than you are comfortable losing entirely.
 
-**Step 5:** (Optional) Configure wallet sync. In live mode, the bot reads your real wallet balance from the exchange at startup, and then re-checks it automatically every few minutes. This means if you deposit or withdraw funds externally, the bot will notice and adjust — you do not need to restart it.
+**Step 5:** (Optional) Configure wallet sync in `settings.yaml`. In live mode, the bot reads your real wallet balance from the exchange at startup, and then re-checks it automatically every few minutes. This means if you deposit or withdraw funds externally, the bot will notice and adjust — you do not need to restart it.
 
-```env
-BALANCE_SYNC_INTERVAL_SECONDS=300     # Re-check wallet every 5 minutes (0 = disable)
-BALANCE_DRIFT_ALERT_THRESHOLD_PCT=1.0 # Get a Telegram alert if balance shifts by 1% or more
+```yaml
+balance_sync_interval_seconds: 300     # Re-check wallet every 5 minutes (0 = disable)
+balance_drift_alert_threshold_pct: 1.0 # Telegram alert if balance shifts by 1% or more
 ```
 
 > **Note:** `INITIAL_BALANCE_QUOTE` is only used for paper trading. In live mode it is completely ignored — the real exchange balance is used instead.
@@ -588,14 +626,7 @@ This is normal at first — the strategies may not be generating signals above t
 
 ### "SQLITE_BUSY" or database errors
 
-The dashboard and trading bot both access the database. Normally the WAL mode prevents conflicts, but on slow machines you may see busy errors. Try:
-
-```env
-# In settings (advanced): increase the busy timeout
-DATABASE_BUSY_TIMEOUT_MS=10000
-```
-
-If using Docker, make sure the `./data` volume is mounted correctly.
+The dashboard and trading bot both access the database. Normally the WAL mode prevents conflicts. On slow machines or network filesystems, you may still see busy errors. Ensure the `./data` volume is on a local disk. If you continue to see them, consider switching to PostgreSQL (`DATABASE_URL=postgresql+psycopg2://...` in `.env`), which handles concurrent access more robustly.
 
 ---
 
@@ -624,14 +655,13 @@ make paper-trade
 
 ### High LLM token costs
 
-See Section 11. The fastest fix is to switch to `deterministic` pipeline mode:
+See Section 11. The fastest fix is to disable the advisory crew in `settings.yaml`:
 
-```env
-MARKET_PIPELINE_MODE=deterministic
-STRATEGY_PIPELINE_MODE=deterministic
+```yaml
+advisory_enabled: false
 ```
 
-This eliminates all LLM token usage while keeping the full trading loop running.
+This eliminates all LLM token usage while keeping the full deterministic trading loop running. Alternatively, raise `advisory_activation_threshold` to reduce how often the crew fires, or use the **Controls** page in the dashboard to pause the advisory crew temporarily without a restart.
 
 ---
 
@@ -651,10 +681,13 @@ The dashboard backend (`make dashboard-api`) needs to be running. Check that por
 
 **Q: Can I run multiple symbols at once?**
 
-Yes:
+Yes. Edit `settings.yaml`:
 
-```env
-SYMBOLS=["BTC/USDT","ETH/USDT","SOL/USDT"]
+```yaml
+symbols:
+  - "BTC/USDT"
+  - "ETH/USDT"
+  - "SOL/USDT"
 ```
 
 Each symbol is analysed independently each cycle. Risk limits apply to the portfolio as a whole.

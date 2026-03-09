@@ -45,7 +45,11 @@ trading_crew/
 ├── src/trading_crew/          Main Python package
 │   ├── main.py                Entry point — event loop, shutdown handling
 │   ├── config/
-│   │   ├── settings.py        Pydantic Settings (all env vars)
+│   │   ├── settings.py        Pydantic Settings (priority: env > .env > yaml > defaults)
+│   │   ├── settings.yaml.example  Version-controlled template for non-secret settings
+│   │   ├── settings.yaml      User's local non-secret settings (gitignored)
+│   │   ├── runtime_flags.py   Atomic reader/writer for runtime.yaml control flags
+│   │   ├── runtime.yaml       Live execution_paused / advisory_paused flags (gitignored)
 │   │   ├── agents.yaml        CrewAI agent role/goal/backstory definitions
 │   │   └── tasks.yaml         CrewAI task definitions
 │   ├── models/                Pydantic domain models (pure data, no logic)
@@ -97,7 +101,8 @@ trading_crew/
 │   │   ├── circuit_breaker.py     Portfolio drawdown circuit breaker
 │   │   ├── position_sizer.py      Kelly-inspired position sizing
 │   │   ├── stop_loss.py           Fixed and ATR stop-loss calculators
-│   │   └── portfolio_limits.py    Exposure and concentration checks
+│   │   ├── portfolio_limits.py    Exposure and concentration checks
+│   │   └── sell_guard.py          SellGuard ABC + BreakEvenSellGuard + AllowAllSellGuard
 │   ├── db/
 │   │   ├── models.py              SQLAlchemy ORM models
 │   │   ├── session.py             Engine factory, session context manager
@@ -113,7 +118,11 @@ trading_crew/
 │           ├── signals.py
 │           ├── cycles.py
 │           ├── system.py
-│           └── agents.py
+│           ├── agents.py
+│           ├── backtest.py
+│           ├── settings.py        GET/PUT  /api/settings/
+│           ├── controls.py        GET/PATCH /api/controls/
+│           └── market.py          GET /api/market/symbols and /ohlcv
 ├── tests/
 │   ├── unit/                  Fast, in-memory tests (no external deps)
 │   ├── integration/           End-to-end tests (mocked exchange)
@@ -122,6 +131,22 @@ trading_crew/
 │   ├── backtest_runner.py     CLI entry point for backtesting
 │   └── dashboard.py           Entry point for FastAPI server
 ├── dashboard/                 Next.js frontend
+│   └── src/
+│       ├── app/               Page routes (Next.js App Router)
+│       │   ├── page.tsx           Overview
+│       │   ├── markets/page.tsx   Candlestick chart + ticker
+│       │   ├── orders/page.tsx
+│       │   ├── signals/page.tsx
+│       │   ├── history/page.tsx
+│       │   ├── agents/page.tsx
+│       │   ├── controls/page.tsx  Execution / advisory toggles
+│       │   ├── settings/page.tsx  Non-secret settings form
+│       │   └── backtest/page.tsx
+│       ├── components/
+│       │   └── CandlestickChart.tsx  lightweight-charts v5 wrapper
+│       ├── hooks/             React Query hooks + useWebSocket
+│       ├── lib/api.ts         Typed API client
+│       └── types/index.ts     TypeScript interfaces
 ├── examples/                  Annotated .env files for common setups
 ├── docs/                      MkDocs documentation site
 ├── Dockerfile                 Multi-stage backend image
@@ -142,9 +167,12 @@ cd trading_crew
 # Install all dependencies including dev tools
 make dev
 
-# Copy and configure environment
+# Copy and configure secrets
 cp .env.example .env
 # Edit .env — at minimum set OPENAI_API_KEY
+
+# Copy and configure non-secret settings (optional — defaults work for paper trading)
+cp src/trading_crew/config/settings.yaml.example src/trading_crew/config/settings.yaml
 
 # Verify the setup
 make test
@@ -577,6 +605,15 @@ The WebSocket poller in `api/websocket.py` emits events by comparing the current
 2. Add a query block in `_collect_events()` that detects the new condition
 3. Update the frontend's event handler in `dashboard/src/`
 
+### Routers that write outside the database
+
+Two routers write to files rather than the database:
+
+- **`routers/settings.py`** (`PUT /api/settings/`) — writes to `config/settings.yaml` atomically using a temp file + `os.replace()`, then calls `clear_settings_cache()` to bust the `lru_cache` on `get_settings()`.
+- **`routers/controls.py`** (`PATCH /api/controls/`) — writes to `config/runtime.yaml` via `runtime_flags.write()` (threading lock + `os.replace()`), then broadcasts a `controls_updated` WebSocket event.
+
+Both routers use the same atomic write pattern to prevent partial writes if the process is killed mid-write.
+
 ### Accessing `db._engine` from routers
 
 All routers receive a `DatabaseService` instance via `Depends(get_db)` and access the underlying engine with `db._engine` to run raw SQLAlchemy queries. This is intentional — it keeps the database connection lifecycle managed by the service, while still allowing the API layer to use the full SQLAlchemy query API.
@@ -833,13 +870,13 @@ A `.devcontainer/devcontainer.json` is included for VS Code and GitHub Codespace
 
 ### Production checklist
 
-- [ ] Set `TRADING_MODE=paper` first; validate for multiple days before switching to `live`
-- [ ] Use PostgreSQL (`DATABASE_URL=postgresql+psycopg2://...`) instead of SQLite
+- [ ] Set `trading_mode: "paper"` in `settings.yaml` first; validate for multiple days before switching to `live`
+- [ ] Use PostgreSQL (`DATABASE_URL=postgresql+psycopg2://...` in `.env`) instead of SQLite
 - [ ] Run `make db-upgrade` before starting the app against a new database
-- [ ] Set `DASHBOARD_API_KEY` to protect the REST API
+- [ ] Set `DASHBOARD_API_KEY` in `.env` to protect the REST API
 - [ ] Mount the data directory as a persistent volume
-- [ ] Configure Telegram notifications for error alerts
-- [ ] Set `LOG_LEVEL=WARNING` in production to reduce log volume
+- [ ] Configure Telegram notifications for error alerts (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in `.env`)
+- [ ] Set `log_level: "WARNING"` in `settings.yaml` to reduce log volume in production
 - [ ] Create an exchange API key with trade permissions only — never withdrawal permissions
 - [ ] Monitor the equity curve via the dashboard or `pnl_snapshots` table
 
@@ -919,11 +956,6 @@ Then in `main.py`, replace the `sell_guard` instantiation and pass your guard to
 break_even_price = average_fill_price + (total_fee / filled_amount)
 ```
 The value is stored in `orders.break_even_price` (nullable Float column) via `save_order()`. Old rows without the column remain `NULL` and the guard falls through gracefully.
-| Add a new API endpoint | `api/routers/` → add router, register in `api/app.py` |
-| Add a WebSocket event | `api/websocket.py` + `api/schemas.py` + frontend handler |
-| Add a new database table | `db/models.py` → define ORM model, `make db-migrate msg="..."` |
-| Add a new notification channel | `services/notification_service.py` → add backend, call in relevant hooks |
-| Add a configuration option | `config/settings.py` + `.env.example` + `docs/docs/configuration.md` |
 
 ---
 
