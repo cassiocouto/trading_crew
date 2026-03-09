@@ -1,4 +1,4 @@
-.PHONY: install dev lint type-check test test-unit test-integration backtest backtest-run backtest-data format pre-commit docs clean dashboard-api dashboard-ui dashboard-install docker-build docker-up docker-down
+.PHONY: install dev init settings-init lint type-check test test-unit test-integration backtest backtest-run backtest-data test-cov format pre-commit docs docs-serve db-migrate db-upgrade db-downgrade clean dashboard-install dashboard-api dashboard-ui docker-build docker-up docker-down help
 
 # ---------------------------------------------------------------------------
 # Cross-platform date helpers (Python works on Windows, macOS, and Linux)
@@ -13,9 +13,34 @@ TODAY := $(shell python -c "from datetime import date;print(date.today())")
 install:  ## Install production dependencies
 	uv sync
 
-dev:  ## Install all dependencies (dev + docs + notifications)
+dev:  ## Install all dependencies (dev + docs + notifications) and pre-commit hooks
 	uv sync --all-extras
 	uv run pre-commit install
+	@echo ""
+	@echo "Next: run 'make init' to bootstrap .env and settings.yaml from the example templates."
+
+init:  ## Bootstrap config files from templates (.env.example and settings.yaml.example)
+	@$(MAKE) --no-print-directory settings-init
+ifeq ($(OS),Windows_NT)
+	@if not exist .env ( \
+		copy .env.example .env && echo Created .env from .env.example -- edit it and set your secrets. \
+	) else ( \
+		echo .env already exists, skipping. \
+	)
+else
+	@[ -f .env ] && echo ".env already exists, skipping." || (cp .env.example .env && echo "Created .env from .env.example -- edit it and set your secrets.")
+endif
+
+settings-init:  ## Copy settings.yaml.example to settings.yaml (skips if already exists)
+ifeq ($(OS),Windows_NT)
+	@if not exist src\trading_crew\config\settings.yaml ( \
+		copy src\trading_crew\config\settings.yaml.example src\trading_crew\config\settings.yaml && echo Created settings.yaml from settings.yaml.example. \
+	) else ( \
+		echo settings.yaml already exists, skipping. \
+	)
+else
+	@[ -f src/trading_crew/config/settings.yaml ] && echo "settings.yaml already exists, skipping." || (cp src/trading_crew/config/settings.yaml.example src/trading_crew/config/settings.yaml && echo "Created settings.yaml from settings.yaml.example.")
+endif
 
 # ---------------------------------------------------------------------------
 # Code Quality
@@ -85,19 +110,19 @@ db-downgrade:  ## Roll back last migration
 # ---------------------------------------------------------------------------
 
 ifeq ($(OS),Windows_NT)
-paper-trade:  ## Start in paper-trading mode (default, safe)
+paper-trade:  ## Start in paper-trading mode (overrides settings.yaml trading_mode)
 	set "TRADING_MODE=paper" && uv run trading-crew
 
-live-trade:  ## Start in live-trading mode (real orders!)
+live-trade:  ## Start in live-trading mode — REAL ORDERS (overrides settings.yaml trading_mode)
 	@echo WARNING: This will place REAL orders on your exchange.
 	@echo Press Ctrl+C within 5 seconds to cancel...
 	@python -c "import time; time.sleep(5)"
 	set "TRADING_MODE=live" && uv run trading-crew
 else
-paper-trade:  ## Start in paper-trading mode (default, safe)
+paper-trade:  ## Start in paper-trading mode (overrides settings.yaml trading_mode)
 	TRADING_MODE=paper uv run trading-crew
 
-live-trade:  ## Start in live-trading mode (real orders!)
+live-trade:  ## Start in live-trading mode — REAL ORDERS (overrides settings.yaml trading_mode)
 	@echo "WARNING: This will place REAL orders on your exchange."
 	@echo "Press Ctrl+C within 5 seconds to cancel..."
 	@sleep 5
@@ -135,7 +160,7 @@ clean:  ## Remove build artifacts, caches, and temp files
 endif
 
 # ---------------------------------------------------------------------------
-# Dashboard (Phase 7)
+# Dashboard
 # ---------------------------------------------------------------------------
 
 dashboard-install:  ## Install dashboard Python + Node deps
@@ -149,7 +174,7 @@ dashboard-ui:  ## Start Next.js dev server (port 3000, requires Node)
 	cd dashboard && npm run dev
 
 # ---------------------------------------------------------------------------
-# Docker (Phase 8)
+# Docker
 # ---------------------------------------------------------------------------
 
 docker-build:  ## Build all Docker images (backend + dashboard)
