@@ -106,6 +106,7 @@ export interface CycleResponse {
   uncertainty_score: number;
   advisory_ran: boolean;
   advisory_adjustments_json: string;
+  advisory_summary: string;
 }
 
 export interface SystemStatusResponse {

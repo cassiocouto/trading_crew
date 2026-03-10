@@ -4,7 +4,8 @@ Defines the structured shape of data that flows through a single cycle:
   Market intelligence  -> CycleState.market_analyses
   Strategy + Risk      -> CycleState.signals, risk_results, order_requests
   Uncertainty scoring  -> CycleState.uncertainty_score, uncertainty_factors
-  Advisory (optional)  -> CycleState.advisory_ran, advisory_adjustments
+  Advisory (optional)  -> CycleState.advisory_ran, advisory_adjustments,
+                          advisory_summary
   Execution            -> CycleState.orders, filled/cancelled/failed_orders
 """
 
@@ -62,6 +63,7 @@ class CycleState(BaseModel):
     uncertainty_factors: list[str] = Field(default_factory=list)
     advisory_ran: bool = False
     advisory_adjustments: list[dict[str, Any]] = Field(default_factory=list)
+    advisory_summary: str = ""
 
     @property
     def has_actionable_signals(self) -> bool:

@@ -577,6 +577,7 @@ class DatabaseService:
             unc_factors_json = _json.dumps(state.uncertainty_factors)
             adv_ran = state.advisory_ran
             adv_adjustments_json = _json.dumps(state.advisory_adjustments)
+            adv_summary = state.advisory_summary
             if existing:
                 existing.timestamp = timestamp
                 existing.num_signals = len(state.signals)
@@ -592,6 +593,7 @@ class DatabaseService:
                 existing.uncertainty_factors_json = unc_factors_json
                 existing.advisory_ran = adv_ran
                 existing.advisory_adjustments_json = adv_adjustments_json
+                existing.advisory_summary = adv_summary
             else:
                 record = CycleRecord(
                     cycle_number=state.cycle_number,
@@ -609,6 +611,7 @@ class DatabaseService:
                     uncertainty_factors_json=unc_factors_json,
                     advisory_ran=adv_ran,
                     advisory_adjustments_json=adv_adjustments_json,
+                    advisory_summary=adv_summary,
                 )
                 session.add(record)
         logger.debug(

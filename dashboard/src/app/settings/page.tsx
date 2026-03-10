@@ -445,7 +445,7 @@ export default function SettingsPage() {
           max={1}
           step={0.05}
           hint="Uncertainty score required to trigger advisory"
-          tooltip="Uncertainty score (0–1) that triggers the advisory crew. Lower values mean the crew runs more often (higher cost). Higher values mean it only activates in genuinely high-uncertainty situations."
+          tooltip="Uncertainty score (0–1) that triggers the advisory crew. Lower values mean the crew runs more often (higher cost). Higher values mean it only activates in genuinely high-uncertainty situations. Changes take effect on the next cycle without a restart."
         />
         <NumberField
           label="Estimated Tokens Per Activation"

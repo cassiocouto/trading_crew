@@ -60,4 +60,5 @@ def _cycle_to_response(record: CycleRecord) -> CycleResponse:
         uncertainty_score=record.uncertainty_score,
         advisory_ran=record.advisory_ran,
         advisory_adjustments_json=record.advisory_adjustments_json,
+        advisory_summary=record.advisory_summary,
     )

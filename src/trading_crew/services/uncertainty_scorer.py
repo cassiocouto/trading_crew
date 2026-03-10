@@ -71,6 +71,14 @@ class UncertaintyScorer:
         self._w = weights or UncertaintyWeights()
         self._threshold = max(0.0, min(1.0, activation_threshold))
 
+    def update_threshold(self, threshold: float) -> None:
+        """Update the activation threshold without recreating the scorer.
+
+        Called each cycle after re-reading settings from disk so that
+        dashboard changes take effect immediately without a bot restart.
+        """
+        self._threshold = max(0.0, min(1.0, threshold))
+
     def score(
         self,
         analyses: dict[str, MarketAnalysis],

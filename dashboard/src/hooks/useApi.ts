@@ -73,7 +73,10 @@ export const useUpdateSettings = () => {
   return useMutation({
     mutationFn: (data: SettingsUpdate) => api.updateSettings(data),
     onSuccess: () => {
+      // Invalidate both: settings (form state) and system-status (threshold
+      // displayed on Overview, Agents, and Markets pages).
       queryClient.invalidateQueries({ queryKey: ["settings"] });
+      queryClient.invalidateQueries({ queryKey: ["system-status"] });
     },
   });
 };

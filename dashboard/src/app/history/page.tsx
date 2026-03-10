@@ -45,7 +45,7 @@ function CycleRow({ c, isExpanded, onToggle }: { c: CycleResponse; isExpanded: b
           )}
           {c.cycle_number}
         </td>
-        <td className="py-2 pr-4 text-xs text-gray-500">
+        <td className="py-2 pr-4 text-xs text-gray-500" suppressHydrationWarning>
           {new Date(c.timestamp).toLocaleString()}
         </td>
         <td className="py-2 pr-4">{c.num_signals}</td>
@@ -83,15 +83,23 @@ function CycleRow({ c, isExpanded, onToggle }: { c: CycleResponse; isExpanded: b
       </tr>
       {isExpanded && c.advisory_ran && (
         <tr className="border-b last:border-0">
-          <td colSpan={9} className="bg-purple-50/50 px-6 py-3">
+          <td colSpan={9} className="bg-purple-50/50 px-6 py-3 space-y-3">
+            {c.advisory_summary && c.advisory_summary.trim().length > 0 && (
+              <div className="text-xs">
+                <span className="font-semibold text-purple-800">Crew Reasoning</span>
+                <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-white p-3 text-gray-700 border border-purple-100">
+                  {c.advisory_summary}
+                </p>
+              </div>
+            )}
             <div className="text-xs">
-              <span className="font-semibold text-purple-800">Advisory Adjustments</span>
+              <span className="font-semibold text-purple-800">Adjustments</span>
               {adjustments ? (
-                <pre className="mt-1.5 overflow-x-auto rounded-md bg-white p-3 text-xs text-gray-700 border border-purple-100">
+                <pre className="mt-1.5 overflow-x-auto rounded-md bg-white p-3 text-gray-700 border border-purple-100">
                   {JSON.stringify(adjustments, null, 2)}
                 </pre>
               ) : (
-                <p className="mt-1 text-gray-500 italic">No adjustment data recorded.</p>
+                <p className="mt-1 text-gray-500 italic">Proposal approved — no adjustments applied.</p>
               )}
             </div>
           </td>

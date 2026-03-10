@@ -137,6 +137,7 @@ class CycleResponse(BaseModel):
     uncertainty_score: float = 0.0
     advisory_ran: bool = False
     advisory_adjustments_json: str = "[]"
+    advisory_summary: str = ""
 
 
 # ---------------------------------------------------------------------------

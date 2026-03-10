@@ -282,6 +282,7 @@ class CycleRecord(Base):
     uncertainty_factors_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     advisory_ran: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     advisory_adjustments_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    advisory_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()

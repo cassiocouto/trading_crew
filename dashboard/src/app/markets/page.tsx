@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { CandlestickChart, type OverlayLine } from "@/components/CandlestickChart";
 import { HelpTooltip } from "@/components/HelpTooltip";
+import { UncertaintyScoreBadge } from "@/components/UncertaintyScoreBadge";
 import {
   useMarketOHLCV,
   useMarketSymbols,
@@ -11,6 +12,7 @@ import {
   useSignals,
   useLatestCycle,
   useStrategyStats,
+  useSystemStatus,
 } from "@/hooks/useApi";
 import {
   emaAligned,
@@ -309,6 +311,7 @@ export default function MarketsPage() {
     useSignals(SIGNALS_LIMIT, undefined, selectedSymbol || undefined, REFRESH_SIGNALS_MS);
   const { data: latestCycle } = useLatestCycle(REFRESH_TICKER_MS);
   const { data: strategyStats } = useStrategyStats(REFRESH_CHART_MS);
+  const { data: systemStatus } = useSystemStatus();
 
   const activeSymbolData = symbols?.find((s) => s.symbol === selectedSymbol);
 
@@ -520,6 +523,9 @@ export default function MarketsPage() {
         <div className="flex flex-col gap-4 lg:col-span-1">
           <CycleStrategyPanel
             cycleNumber={latestCycle?.cycle_number ?? null}
+            uncertaintyScore={latestCycle?.uncertainty_score ?? null}
+            advisoryRan={latestCycle?.advisory_ran ?? false}
+            uncertaintyThreshold={systemStatus?.advisory_activation_threshold}
             activeStrategies={activeStrategies}
             strategyStats={strategyStats ?? []}
             symbol={selectedSymbol}
@@ -540,11 +546,17 @@ export default function MarketsPage() {
 
 function CycleStrategyPanel({
   cycleNumber,
+  uncertaintyScore,
+  advisoryRan,
+  uncertaintyThreshold,
   activeStrategies,
   strategyStats,
   symbol,
 }: {
   cycleNumber: number | null;
+  uncertaintyScore: number | null;
+  advisoryRan: boolean;
+  uncertaintyThreshold?: number;
   activeStrategies: string[];
   strategyStats: StrategyStatsResponse[];
   symbol: string;
@@ -575,6 +587,13 @@ function CycleStrategyPanel({
             {cycleNumber != null ? `#${cycleNumber}` : "—"}
           </span>
         </div>
+        {uncertaintyScore != null && (
+          <UncertaintyScoreBadge
+            score={uncertaintyScore}
+            threshold={uncertaintyThreshold}
+            advisoryRan={advisoryRan}
+          />
+        )}
         <div>
           <p className="mb-1.5 text-xs text-gray-500">
             Strategies active for{" "}

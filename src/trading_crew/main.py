@@ -48,6 +48,7 @@ from trading_crew.config.settings import (
     SellGuardMode,
     Settings,
     TokenBudgetDegradeMode,
+    clear_settings_cache,
     get_settings,
 )
 from trading_crew.crews.advisory_crew import AdvisoryCrew
@@ -663,6 +664,14 @@ async def main_async() -> None:
             # Re-read runtime control flags each cycle so dashboard toggles
             # take effect without a restart.
             rt_flags = runtime_flags.read()
+
+            # Clear the bot process's own lru_cache so get_settings() re-reads
+            # settings.yaml from disk. The API process has its own separate cache
+            # — calling clear_settings_cache() here only affects the bot process,
+            # which is exactly what we need for live threshold/weight updates.
+            clear_settings_cache()
+            settings = get_settings()
+            uncertainty_scorer.update_threshold(settings.advisory_activation_threshold)
             logger.debug(
                 "Runtime flags: execution_paused=%s, advisory_paused=%s",
                 rt_flags["execution_paused"],

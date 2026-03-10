@@ -302,10 +302,14 @@ def get_settings() -> Settings:
 
 
 def clear_settings_cache() -> None:
-    """Invalidate the settings cache so the next call reloads from disk.
+    """Invalidate the in-process lru_cache so the next call reloads from disk.
 
-    Called by the settings API after writing settings.yaml so the API layer
-    reflects the new values immediately.  The bot process retains its cached
-    copy until its next restart or until it explicitly calls this too.
+    Called in two places:
+    - API process: by ``PUT /api/settings`` after writing settings.yaml, so
+      the API layer reflects new values immediately.
+    - Bot process: at the top of each trading cycle, so threshold and weight
+      changes saved via the dashboard take effect on the next cycle without a
+      restart. Each process holds its own cache — clearing one does not affect
+      the other.
     """
     get_settings.cache_clear()

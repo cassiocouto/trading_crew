@@ -261,6 +261,7 @@ class TradingFlow(Flow[CycleState]):
 
         self.state.advisory_ran = True
         self.state.advisory_adjustments = [adj.model_dump() for adj in advisory_result.adjustments]
+        self.state.advisory_summary = advisory_result.summary
 
         if not advisory_result.adjustments:
             logger.info("Advisory crew approved proposal without changes")

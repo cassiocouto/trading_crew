@@ -119,7 +119,7 @@ export default function OrdersPage() {
                       <td className="py-2 pr-4 text-red-600 text-xs max-w-xs truncate">
                         {f.error_reason}
                       </td>
-                      <td className="py-2 text-xs text-gray-400">
+                      <td className="py-2 text-xs text-gray-400" suppressHydrationWarning>
                         {new Date(f.timestamp).toLocaleString()}
                       </td>
                     </tr>

@@ -5,6 +5,7 @@ import { AgentCard } from "@/components/AgentCard";
 import { MetricCard } from "@/components/MetricCard";
 import { PositionsTable } from "@/components/PositionsTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import { UncertaintyScoreBadge } from "@/components/UncertaintyScoreBadge";
 import { useAgents, useLatestCycle, usePortfolio, useSystemStatus } from "@/hooks/useApi";
 
 export default function OverviewPage() {
@@ -53,14 +54,23 @@ export default function OverviewPage() {
         />
       </div>
 
-      {/* Last cycle badge */}
+      {/* Last cycle summary */}
       {latestCycle.data && (
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-gray-500">Last cycle #{latestCycle.data.cycle_number}:</span>
-          <StatusBadge status={latestCycle.data.circuit_breaker_tripped ? "rejected" : "filled"} />
-          <span className="text-gray-600">
-            {latestCycle.data.num_orders_filled} fills / {latestCycle.data.num_signals} signals
-          </span>
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-400">
+            Last Cycle #{latestCycle.data.cycle_number}
+          </p>
+          <div className="flex flex-wrap items-center gap-3 text-sm mb-4">
+            <StatusBadge status={latestCycle.data.circuit_breaker_tripped ? "rejected" : "filled"} />
+            <span className="text-gray-600">
+              {latestCycle.data.num_orders_filled} fills / {latestCycle.data.num_signals} signals
+            </span>
+          </div>
+          <UncertaintyScoreBadge
+            score={latestCycle.data.uncertainty_score}
+            threshold={systemStatus.data?.advisory_activation_threshold}
+            advisoryRan={latestCycle.data.advisory_ran}
+          />
         </div>
       )}
 
