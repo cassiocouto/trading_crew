@@ -45,6 +45,12 @@ tightening stop-losses.
 - **Real-time Dashboard** — FastAPI + Next.js web UI with WebSocket live updates
   for monitoring portfolio, orders, signals, and agent status (see [Dashboard](#dashboard))
 
+### Demo
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Trading Crew dashboard demo" width="800" />
+</p>
+
 ## Quick Start
 
 ### Prerequisites

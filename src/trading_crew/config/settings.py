@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     # -- Symbols to trade -----------------------------------------------------
     symbols: list[str] = Field(default=["BTC/USDT"])
     default_timeframe: str = "1h"
+    chart_extra_timeframes: list[str] = Field(
+        default=["15m"],
+        description="Additional timeframes to fetch each cycle for chart display (not used for analysis).",
+    )
 
     # -- Database -------------------------------------------------------------
     database_url: str = "sqlite:///trading_crew.db"
@@ -148,7 +152,7 @@ class Settings(BaseSettings):
     risk: RiskParams = Field(default_factory=RiskParams)
 
     # -- Trading loop ---------------------------------------------------------
-    loop_interval_seconds: int = Field(default=900, ge=10)
+    loop_interval_seconds: int = Field(default=900, ge=1)
     stale_order_cancel_minutes: int = Field(default=10, ge=1)
     stale_partial_fill_cancel_minutes: int = Field(default=360, ge=1)
 

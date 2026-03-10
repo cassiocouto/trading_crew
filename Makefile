@@ -1,4 +1,4 @@
-.PHONY: install dev init settings-init lint type-check test test-unit test-integration backtest backtest-run backtest-data test-cov format pre-commit docs docs-serve db-migrate db-upgrade db-downgrade clean start start-live dashboard-install dashboard-api dashboard-ui docker-build docker-up docker-down help
+.PHONY: install dev init settings-init lint type-check test test-unit test-integration backtest backtest-run backtest-data test-cov format pre-commit docs docs-serve db-migrate db-upgrade db-downgrade clean start start-live stop dashboard-install dashboard-api dashboard-ui docker-build docker-up docker-down help
 
 # ---------------------------------------------------------------------------
 # Cross-platform date helpers (Python works on Windows, macOS, and Linux)
@@ -114,6 +114,9 @@ start:  ## Start bot + API + dashboard UI together in paper mode (color-coded ou
 
 start-live:  ## Start bot + API + dashboard UI together in LIVE mode — REAL ORDERS!
 	uv run python scripts/start_all.py --mode live
+
+stop:  ## Force-kill any lingering services on ports 3000/8000 and remove lock files
+	uv run python scripts/stop_all.py
 
 ifeq ($(OS),Windows_NT)
 paper-trade:  ## Start trading bot only in paper mode (overrides settings.yaml trading_mode)

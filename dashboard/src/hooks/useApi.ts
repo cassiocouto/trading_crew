@@ -107,21 +107,19 @@ export const useUpdateControls = () => {
 // Market data
 // ---------------------------------------------------------------------------
 
-// Symbol ticker auto-refreshes every 15 s everywhere it is used — it drives
-// the live price display in the Markets page header.
-export const useMarketSymbols = () =>
+export const useMarketSymbols = (refetchInterval = 15_000) =>
   useQuery({
     queryKey: ["market-symbols"],
     queryFn: api.getMarketSymbols,
-    staleTime: 15_000,
-    refetchInterval: 15_000,
+    staleTime: Math.min(refetchInterval, 15_000),
+    refetchInterval,
   });
 
-export const useMarketOHLCV = (symbol: string, timeframe = "1h", limit = 120) =>
+export const useMarketOHLCV = (symbol: string, timeframe = "1h", limit = 120, refetchInterval = 60_000) =>
   useQuery({
     queryKey: ["market-ohlcv", symbol, timeframe, limit],
     queryFn: () => api.getMarketOHLCV(symbol, timeframe, limit),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: Math.min(refetchInterval, 60_000),
+    refetchInterval,
     enabled: Boolean(symbol),
   });

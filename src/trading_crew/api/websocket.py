@@ -3,11 +3,13 @@
 The poller maintains per-connection integer watermarks and detects new DB rows
 without any IPC coupling to the trading loop process:
 
-  - cycle_complete   : MAX(id) on cycle_history exceeds watermark
-  - order_filled     : new OrderRecord with status='filled' beyond watermark
-  - signal_generated : MAX(id) on trade_signals exceeds watermark
-  - circuit_breaker  : newest CycleRecord has circuit_breaker_tripped=True
-                       AND its id exceeds the cycle watermark
+  - cycle_complete        : MAX(id) on cycle_history exceeds watermark
+  - order_filled          : new OrderRecord with status='filled' beyond watermark
+  - signal_generated      : MAX(id) on trade_signals exceeds watermark
+  - circuit_breaker       : newest CycleRecord has circuit_breaker_tripped=True
+                            AND its id exceeds the cycle watermark
+  - market_data_updated   : MAX(id) on tickers exceeds watermark (new ticker
+                            row means the bot just wrote fresh market data)
 """
 
 from __future__ import annotations
@@ -63,14 +65,14 @@ async def ws_events_handler(ws: WebSocket) -> None:
     await manager.connect(ws)
 
     # Initialise watermarks from current max IDs so we only push *new* rows.
-    cycle_wm, order_wm, signal_wm = await asyncio.to_thread(_get_initial_watermarks, db)
+    cycle_wm, order_wm, signal_wm, ticker_wm = await asyncio.to_thread(_get_initial_watermarks, db)
 
     try:
         while True:
             await asyncio.sleep(poll_interval)
 
-            events, cycle_wm, order_wm, signal_wm = await asyncio.to_thread(
-                _collect_events, db, cycle_wm, order_wm, signal_wm
+            events, cycle_wm, order_wm, signal_wm, ticker_wm = await asyncio.to_thread(
+                _collect_events, db, cycle_wm, order_wm, signal_wm, ticker_wm
             )
             for event in events:
                 await manager.broadcast(event)
@@ -87,18 +89,19 @@ async def ws_events_handler(ws: WebSocket) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _get_initial_watermarks(db: DatabaseService) -> tuple[int, int, int]:
-    """Return current max IDs for cycle_history, orders, trade_signals."""
+def _get_initial_watermarks(db: DatabaseService) -> tuple[int, int, int, int]:
+    """Return current max IDs for cycle_history, orders, trade_signals, tickers."""
     from sqlalchemy import func, select
 
-    from trading_crew.db.models import CycleRecord, OrderRecord, TradeSignalRecord
+    from trading_crew.db.models import CycleRecord, OrderRecord, TickerRecord, TradeSignalRecord
     from trading_crew.db.session import get_session
 
     with get_session(db._engine) as session:
         cycle_wm = int(session.execute(select(func.max(CycleRecord.id))).scalar() or 0)
         order_wm = int(session.execute(select(func.max(OrderRecord.id))).scalar() or 0)
         signal_wm = int(session.execute(select(func.max(TradeSignalRecord.id))).scalar() or 0)
-    return cycle_wm, order_wm, signal_wm
+        ticker_wm = int(session.execute(select(func.max(TickerRecord.id))).scalar() or 0)
+    return cycle_wm, order_wm, signal_wm, ticker_wm
 
 
 def _collect_events(
@@ -106,15 +109,16 @@ def _collect_events(
     cycle_wm: int,
     order_wm: int,
     signal_wm: int,
-) -> tuple[list[WsEvent], int, int, int]:
+    ticker_wm: int,
+) -> tuple[list[WsEvent], int, int, int, int]:
     """Query DB for new rows and return a list of WsEvents plus updated watermarks.
 
     Running in a threadpool, returns plain data so the caller can broadcast
     events back on the async event loop without touching asyncio internals.
     """
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
-    from trading_crew.db.models import CycleRecord, OrderRecord, TradeSignalRecord
+    from trading_crew.db.models import CycleRecord, OrderRecord, TickerRecord, TradeSignalRecord
     from trading_crew.db.session import get_session
 
     events: list[WsEvent] = []
@@ -186,7 +190,13 @@ def _collect_events(
             events.append(WsEvent(type="signal_generated", payload=signal_payload))
             signal_wm = max(signal_wm, signal_rec.id)
 
-    return events, cycle_wm, order_wm, signal_wm
+        # --- market_data_updated (new ticker rows = bot just wrote fresh data) ---
+        new_ticker_max = int(session.execute(select(func.max(TickerRecord.id))).scalar() or 0)
+        if new_ticker_max > ticker_wm:
+            events.append(WsEvent(type="market_data_updated", payload={}))
+            ticker_wm = new_ticker_max
+
+    return events, cycle_wm, order_wm, signal_wm, ticker_wm
 
 
 # Keep _poll_and_emit as an alias for tests that reference it directly.
@@ -195,6 +205,7 @@ def _poll_and_emit(
     cycle_wm: int,
     order_wm: int,
     signal_wm: int,
-) -> tuple[list[WsEvent], int, int, int]:
+    ticker_wm: int = 0,
+) -> tuple[list[WsEvent], int, int, int, int]:
     """Thin wrapper used by tests; returns (events, updated watermarks)."""
-    return _collect_events(db, cycle_wm, order_wm, signal_wm)
+    return _collect_events(db, cycle_wm, order_wm, signal_wm, ticker_wm)

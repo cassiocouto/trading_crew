@@ -59,6 +59,7 @@ class MarketIntelligenceService:
         symbols: list[str],
         timeframe: str,
         candle_limit: int = 120,
+        extra_timeframes: list[str] | None = None,
     ) -> dict[str, MarketAnalysis]:
         """Execute one full deterministic market-intelligence cycle."""
         analyses: dict[str, MarketAnalysis] = {}
@@ -68,6 +69,11 @@ class MarketIntelligenceService:
             )
             if analysis is not None:
                 analyses[symbol] = analysis
+
+            for tf in extra_timeframes or []:
+                if tf != timeframe:
+                    await self._fetch_extra_timeframe(symbol, tf, candle_limit)
+
         return analyses
 
     async def _run_symbol(
@@ -87,6 +93,16 @@ class MarketIntelligenceService:
         except Exception:
             logger.exception("Market pipeline failed for %s", symbol)
             return None
+
+    async def _fetch_extra_timeframe(self, symbol: str, timeframe: str, candle_limit: int) -> None:
+        """Fetch and store candles for an extra chart timeframe (no analysis)."""
+        try:
+            candles = await self._exchange.fetch_ohlcv(
+                symbol=symbol, timeframe=timeframe, limit=candle_limit
+            )
+            self._db.save_ohlcv_batch(candles)
+        except Exception:
+            logger.warning("Extra timeframe fetch failed for %s/%s", symbol, timeframe)
 
     def _analyze(self, symbol: str, candles: list[OHLCV]) -> MarketAnalysis:
         analysis = self._analyzer.analyze_from_candles(

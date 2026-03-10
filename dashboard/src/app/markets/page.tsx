@@ -29,14 +29,16 @@ import type {
 } from "@/types";
 
 // ---------------------------------------------------------------------------
-// Refresh intervals
+// Refresh intervals (fallback — primary updates arrive via WebSocket push)
 // ---------------------------------------------------------------------------
 
-const REFRESH_TICKER_MS = 15_000;
+const REFRESH_TICKER_MS = 30_000;
 const REFRESH_SIGNALS_MS = 30_000;
-const REFRESH_CHART_MS = 60_000;
+const REFRESH_CHART_MS = 30_000;
+
 
 const TIMEFRAMES = [
+  { label: "15M", value: "15m" },
   { label: "1H", value: "1h" },
   { label: "4H", value: "4h" },
   { label: "1D", value: "1d" },
@@ -251,7 +253,7 @@ export default function MarketsPage() {
   const {
     data: symbols,
     isLoading: symbolsLoading,
-  } = useMarketSymbols();
+  } = useMarketSymbols(REFRESH_TICKER_MS);
 
   const [activeSymbol, setActiveSymbol] = useState<string>("");
   const [timeframe, setTimeframe] = useState("1h");
@@ -286,7 +288,7 @@ export default function MarketsPage() {
     isLoading: candlesLoading,
     dataUpdatedAt: candleUpdatedAt,
     isFetching: candleFetching,
-  } = useMarketOHLCV(selectedSymbol, timeframe, OHLCV_LIMIT);
+  } = useMarketOHLCV(selectedSymbol, timeframe, OHLCV_LIMIT, REFRESH_CHART_MS);
 
   const { data: orders, isLoading: ordersLoading } =
     useOrders(SIDEBAR_ORDER_LIMIT, undefined, selectedSymbol || undefined, REFRESH_SIGNALS_MS);
@@ -363,9 +365,7 @@ export default function MarketsPage() {
                 ? "Updated"
                 : "Live"}
           <span className="text-gray-300 dark:text-gray-600">·</span>
-          <span>chart {REFRESH_CHART_MS / 1000}s</span>
-          <span className="text-gray-300 dark:text-gray-600">·</span>
-          <span>signals {REFRESH_SIGNALS_MS / 1000}s</span>
+          <span>WS push + {REFRESH_CHART_MS / 1000}s fallback</span>
         </div>
       </div>
 

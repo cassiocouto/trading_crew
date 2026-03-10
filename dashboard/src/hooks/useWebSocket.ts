@@ -7,11 +7,12 @@ import type { WsEvent } from "@/types";
 
 // Map from WS event type to the React Query keys that should be invalidated.
 const EVENT_QUERY_MAP: Record<string, string[][]> = {
-  cycle_complete: [["cycles"], ["portfolio"], ["pnl-history"]],
+  cycle_complete: [["cycles"], ["portfolio"], ["pnl-history"], ["latest-cycle"]],
   order_filled: [["orders"], ["portfolio"]],
   signal_generated: [["signals"], ["strategy-stats"]],
   circuit_breaker: [["system-status"], ["cycles"]],
   controls_updated: [["controls"]],
+  market_data_updated: [["market-symbols"], ["market-ohlcv"]],
 };
 
 export function useWebSocket() {

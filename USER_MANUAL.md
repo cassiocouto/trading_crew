@@ -439,7 +439,7 @@ make docker-up
 | Page | What you'll see |
 |------|----------------|
 | **Overview** | Current balance, total P&L, open positions, last cycle summary, circuit breaker status, agent activity grid |
-| **Markets** | Candlestick chart (volume toggleable via checkbox) per tracked symbol; 1H/4H/1D timeframe selector; right-hand sidebar with five collapsible panels — **Cycle & Strategies** (current cycle number + per-strategy buy/sell signal counts), **Latest Signals** (most recent signals with confidence, risk verdict, and full strategy reasoning — click to expand), **Volatility** (ATR(14), ATR%, 20-bar price range), **Orders**, and **Failed Orders** — all scoped to the selected symbol and auto-refreshing. |
+| **Markets** | Candlestick chart (volume toggleable via checkbox) per tracked symbol; 15M/1H/4H/1D timeframe selector; right-hand sidebar with five collapsible panels — **Cycle & Strategies** (current cycle number + per-strategy buy/sell signal counts), **Latest Signals** (most recent signals with confidence, risk verdict, and full strategy reasoning — click to expand), **Volatility** (ATR(14), ATR%, 20-bar price range), **Orders**, and **Failed Orders** — all scoped to the selected symbol and auto-refreshing. |
 | **Orders** | All orders with status filters (open, filled, cancelled, failed). Per-position P&L cards. |
 | **Signals** | Live signal feed with strategy tags, signal direction (BUY/SELL), and confidence bars |
 | **History** | Equity curve chart, strategy breakdown table (signals generated vs. orders filled), cycle history log |
@@ -454,7 +454,17 @@ The dashboard supports Light, Dark, and System themes. Click the theme toggle at
 
 ### Live updates
 
-The dashboard updates via WebSocket and timed polling. New signals, filled orders, and completed cycles appear within seconds via WebSocket events. On the Markets page, the ticker refreshes every 15 s, signals and orders every 30 s, and the candle chart every 60 s. A live indicator in the Markets page header shows elapsed time since last fetch and pulses while a background refresh is in progress.
+The dashboard uses a WebSocket push model for real-time updates. The API server polls the database every few seconds (controlled by `dashboard_ws_poll_interval_seconds` in `settings.yaml`, default 3 s) and pushes events to all connected browsers:
+
+| Event | Trigger | What refreshes |
+|-------|---------|----------------|
+| `cycle_complete` | Bot finishes a trading cycle | Portfolio, P&L history, cycle counter |
+| `order_filled` | An order is filled on the exchange | Orders list, portfolio balance |
+| `signal_generated` | A strategy emits a new signal | Signals feed, strategy stats |
+| `market_data_updated` | Bot writes fresh ticker/OHLCV data | Chart candles, ticker prices, signals, orders |
+| `circuit_breaker` | Circuit breaker trips | System status |
+
+On the Markets page, chart data, ticker prices, signals, and orders all refresh **instantly** when the bot completes a cycle — no manual reload needed. A 30-second fallback poll runs as a safety net in case the WebSocket disconnects. The status bar in the page header shows elapsed time since the last data fetch and pulses while a background refresh is in progress.
 
 ### Live controls
 

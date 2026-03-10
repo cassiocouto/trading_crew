@@ -145,6 +145,7 @@ class TradingFlow(Flow[CycleState]):
             symbols=self._settings.symbols,
             timeframe=self._settings.default_timeframe,
             candle_limit=self._settings.market_data_candle_limit,
+            extra_timeframes=self._settings.chart_extra_timeframes,
         )
         logger.info(
             "Market pipeline completed. Analyses: %d",
