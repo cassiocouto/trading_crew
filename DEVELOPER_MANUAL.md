@@ -924,6 +924,113 @@ Access it anywhere via `get_settings().my_new_setting`.
 
 `settings.advisory_llm_configured` returns `True` when `OPENAI_API_KEY` is set to a non-placeholder value. The advisory crew is disabled at startup and cannot be unpaused via the Controls page when this returns `False`.
 
+### Uncertainty scorer internals
+
+**File:** `src/trading_crew/services/uncertainty_scorer.py`
+
+`UncertaintyScorer.score()` is called once per cycle from `TradingFlow` after the deterministic pipeline completes. It is **pure and synchronous** — no I/O, no LLM calls.
+
+#### Formula
+
+```
+score = clamp(
+    Σ (raw_i × weight_i)   for i in [volatile_regime, sentiment_extreme,
+                                       low_sentiment_confidence, strategy_disagreement,
+                                       drawdown_proximity, regime_change]
+, 0.0, 1.0)
+```
+
+If `score >= activation_threshold` → `UncertaintyResult.recommend_advisory = True` → advisory crew runs.
+
+#### Factor implementations
+
+| Factor | Class method | Raw value computation |
+|--------|-------------|----------------------|
+| `volatile_regime` | `_volatile_regime` | `count(regime == "volatile") / total_symbols` — fraction of symbols in a volatile regime this cycle |
+| `sentiment_extreme` | `_sentiment_extreme` | Binary: `1.0` if `abs(sentiment.score) >= 0.5`, else `0.0`. Skipped when sentiment is disabled or confidence is zero |
+| `low_sentiment_confidence` | `_low_sentiment_confidence` | Binary: `1.0` if `(1 - sentiment.confidence) >= 0.5`, else `0.0`. Skipped when no sentiment snapshot |
+| `strategy_disagreement` | `_strategy_disagreement` | Per symbol: `1 - (max_faction / n_votes)`, averaged across all symbols. Zero when all strategies agree |
+| `drawdown_proximity` | `_drawdown_proximity` | `min(1.0, portfolio.drawdown_pct / risk_params.max_drawdown_pct)`. Zero when at peak; 1.0 at the circuit-breaker limit |
+| `regime_change` | `_regime_change` | `changed_symbols / compared_symbols` since previous cycle regimes. Zero on first cycle (no previous state) |
+
+#### Default weights and saturation
+
+```python
+# UncertaintyWeights defaults
+volatile_regime           = 0.3
+sentiment_extreme         = 0.2
+low_sentiment_confidence  = 0.2
+strategy_disagreement     = 0.3
+drawdown_proximity        = 0.2
+regime_change             = 0.3
+# Sum = 1.5  (intentionally > 1.0)
+```
+
+Weights intentionally sum to **1.5** so that multiple simultaneously firing factors push the score toward 1.0 more aggressively than any single factor could (max single-factor contribution is 0.3, below the default threshold of 0.6). A single factor cannot trigger the advisory crew alone at default settings.
+
+#### Data flow
+
+```
+TradingFlow.strategy_phase()
+  └─ analyses, votes, portfolio, risk_params, sentiment, previous_regimes
+       │
+       ▼
+UncertaintyScorer.score()          ← no I/O, pure computation
+       │
+       ├─ UncertaintyResult.score            stored on CycleRecord
+       ├─ UncertaintyResult.factors          logged for debugging
+       └─ UncertaintyResult.recommend_advisory
+              │
+              ├─ False → skip advisory crew entirely
+              └─ True  → TradingFlow.advisory_phase() → CrewAI crew
+```
+
+#### Advisory crew lifecycle
+
+The advisory crew is **stateless and short-lived**. There is no background process, no "active mode", and no explicit transition back to idle. The lifecycle per cycle is:
+
+```
+main.py while-loop (one iteration = one cycle)
+  │
+  ├─ rt_flags = runtime_flags.read()           # check dashboard pauses
+  │
+  ├─ _effective_advisory_crew = None           # if advisory_paused=true, crew is None
+  │    else advisory_crew                      # (or None if advisory_enabled=false / no API key)
+  │
+  └─ TradingFlow.akickoff()
+        ├─ market_phase → strategy_phase → compute_uncertainty
+        │
+        ├─ route_after_uncertainty:
+        │     score < threshold  →  "skip_advisory"  (crew never called this cycle)
+        │     score ≥ threshold AND crew is not None AND budget not exhausted
+        │                         →  "advisory"
+        │
+        ├─ advisory_phase (only if routed to "advisory"):
+        │     crew.run(context)  ←  one blocking async call to the LLM
+        │     apply directives   ←  adjusts signals in-place
+        │     (done — crew object is reused next cycle from the outer loop)
+        │
+        └─ reserve_phase → execution_phase → post_cycle_hooks
+```
+
+The `AdvisoryCrew` instance is created **once** at startup in `main()` and reused across all cycles. Between cycles it is entirely idle. Calling `crew.run()` is what constitutes "active" — it begins and ends within a single cycle.
+
+**Returning to idle is automatic.** No reset, no state to clear. The next cycle simply re-evaluates the uncertainty score from scratch. If conditions have normalised, `recommend_advisory` will be `False` and `advisory_phase` will not be reached.
+
+**Budget accounting** (`_accumulate_estimated_tokens`) runs after each cycle. If `daily_token_budget_enabled` is true and `estimated_tokens_used_today >= daily_token_budget_tokens`:
+- `budget_stop` mode: `budget_state.degrade_level` is set to `BudgetDegradeLevel.BUDGET_STOP`. The `route_after_uncertainty` router checks this and routes to `"skip_advisory"` for the rest of the UTC day.
+- `normal` mode: advisory continues; a warning notification is sent once.
+- At UTC midnight, `_refresh_budget_day` resets `estimated_tokens_used_today = 0` and `degrade_level = NORMAL`.
+
+#### Modifying or extending factors
+
+1. Add a new `_my_factor()` method on `UncertaintyScorer` returning `UncertaintyFactor`.
+2. Add the corresponding weight field to `UncertaintyWeights` with a sane default.
+3. Add the weight field to `Settings` (prefix `uncertainty_weight_`) and `settings.yaml.example`.
+4. Wire the new field into the `UncertaintyWeights` construction in `TradingFlow`.
+5. Call `factors.append(self._my_factor(...))` inside `score()`.
+6. Add the new weight field to `SettingsResponse` / `SettingsUpdate` in `api/schemas.py` so it is dashboard-editable.
+
 ---
 
 ## 15. Docker and Deployment

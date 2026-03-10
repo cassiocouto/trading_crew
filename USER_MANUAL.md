@@ -215,6 +215,82 @@ The advisory crew requires an OpenAI API key (or compatible LLM). If none is con
 
 **The practical recommendation:** Keep the defaults. The deterministic pipeline handles the vast majority of cycles. The advisory crew adds a human-like sanity check only when conditions are ambiguous.
 
+### How the uncertainty score is calculated
+
+Every cycle the bot computes a single number — the **uncertainty score** (0.0–1.0) — from six independent factors. If the score equals or exceeds `advisory_activation_threshold` the advisory crew is invoked; otherwise the cycle completes without any LLM calls.
+
+**The formula:**
+
+```
+score = clamp(
+    factor_volatile_regime     × weight_volatile_regime
+  + factor_sentiment_extreme   × weight_sentiment_extreme
+  + factor_low_confidence      × weight_low_sentiment_confidence
+  + factor_disagreement        × weight_strategy_disagreement
+  + factor_drawdown_proximity  × weight_drawdown_proximity
+  + factor_regime_change       × weight_regime_change
+, min=0.0, max=1.0)
+```
+
+Each factor produces a value between 0 and 1. It is multiplied by its configurable weight and the results are summed. The sum is **clamped to [0, 1]**. The six factors:
+
+| Factor | What it measures | Raw value |
+|--------|-----------------|-----------|
+| **Volatile Regime** | Fraction of tracked symbols currently classified as "volatile" (ATR/price exceeds `market_regime_volatility_threshold`) | 0 = none volatile, 1 = all volatile |
+| **Sentiment Extreme** | Whether the market sentiment score is at an extreme — triggers when `|sentiment_score| ≥ 0.5` (very fearful or very greedy) | 0 or 1 (binary) |
+| **Low Sentiment Confidence** | Whether confidence in the sentiment reading is low — triggers when `1 − confidence ≥ 0.5` | 0 or 1 (binary) |
+| **Strategy Disagreement** | Average cross-strategy disagreement per symbol — how evenly split buy/sell/hold votes are | 0 = full consensus, 1 = perfectly split |
+| **Drawdown Proximity** | How close the portfolio is to the circuit-breaker: `current_drawdown / max_drawdown_pct` | 0 = no drawdown, 1 = at the limit |
+| **Regime Change** | Fraction of symbols that changed market regime (e.g. trending → ranging) since the previous cycle | 0 = no change, 1 = all changed |
+
+**Why the weights sum to 1.5 (not 1.0):** This is intentional. When multiple factors fire simultaneously the score climbs more aggressively toward 1.0, making advisory activation more likely in compounding uncertainty situations. A single factor at its maximum can contribute at most its own weight (0.2–0.3), which is below the default threshold of 0.6 — so one factor alone is not enough to trigger the advisory crew. Two or three factors firing together typically push the score past the threshold.
+
+**Example:** In a volatile market where strategies disagree:
+- Volatile regime = 1.0 × 0.3 = **0.30**
+- Strategy disagreement = 0.8 × 0.3 = **0.24**
+- Regime change = 0.5 × 0.3 = **0.15**
+- Others = 0
+- **Total = 0.69 → advisory activates** (threshold 0.6)
+
+**Tuning the score:**
+- To reduce advisory frequency, **raise `advisory_activation_threshold`** (e.g. 0.75) or **lower individual weights** for factors that matter less to your strategy.
+- To make advisory fire more aggressively, lower the threshold or raise weights for factors you consider most important.
+- Setting a factor's weight to `0.0` disables that factor entirely.
+- The sentiment factors (`sentiment_extreme`, `low_sentiment_confidence`) produce zero contribution when `sentiment_enabled: false` — no need to zero out their weights.
+
+### Advisory crew lifecycle — active, idle, and back again
+
+**The advisory crew has no persistent "active" state.** It is invoked at most once per cycle, on-demand, and is otherwise completely idle. Understanding this makes it much easier to reason about frequency and cost.
+
+```
+Each cycle (every loop_interval_seconds, default 15 min):
+  ┌─ Deterministic pipeline runs (always)
+  │    market data → strategies → signals → risk evaluation
+  │
+  ├─ Uncertainty score is computed (always, zero LLM cost)
+  │
+  ├─ score < threshold  →  advisory crew is SKIPPED  (idle this cycle)
+  │
+  └─ score ≥ threshold  →  advisory crew RUNS once, then stops
+         AI agents review signals, optionally adjust them, done.
+         Next cycle starts fresh — score is recomputed from scratch.
+```
+
+**How often can it run?** At most once per `loop_interval_seconds`. With the default 15-minute interval, the theoretical maximum is 96 advisory activations per day. In practice, consecutive cycles in calm markets will keep the score below the threshold and the crew will not run at all.
+
+**What makes it "go back to idle"?** Nothing explicit needs to happen — the crew is always idle unless the current cycle's score reaches the threshold. Once market conditions normalise (volatility drops, strategies agree, drawdown recovers, no regime change), the score falls back below the threshold automatically on the next cycle and the crew is skipped again.
+
+**Additional conditions that prevent the crew from running**, even when the score is high enough:
+
+| Condition | Where to change it |
+|-----------|-------------------|
+| `advisory_enabled: false` in settings | Settings page → Advisory Crew section |
+| Advisory paused via dashboard | Controls page → Advisory toggle |
+| No OpenAI API key in `.env` | `.env` file — `OPENAI_API_KEY` |
+| Daily token budget exhausted (`budget_stop` mode) | Resets automatically at midnight UTC; or raise the budget limit |
+
+**The advisory crew never blocks the next cycle.** If the crew fails for any reason (network error, LLM timeout), the bot logs the error, proceeds with the original deterministic signals, and the next cycle starts normally.
+
 ---
 
 ## 6. The Built-in Strategies

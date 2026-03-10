@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, BrainCircuit, Play, Zap } from "lucide-react";
+import { HelpTooltip } from "@/components/HelpTooltip";
 import { useControls, useUpdateControls } from "@/hooks/useApi";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
@@ -54,7 +55,8 @@ export default function ControlsPage() {
           <ControlCard
             icon={<Zap size={20} />}
             title="Execution Agent"
-            description="When paused, the bot will still run market analysis and generate signals but will not place any orders on the exchange."
+            helpText="Controls whether the bot is allowed to place orders on the exchange. When paused, every other phase still runs normally: market data is fetched, indicators are computed, strategies generate signals, and risk checks run — but no order is submitted. Resume when you are ready to trade again. Takes effect on the next cycle (within one loop interval)."
+            description="When paused, the bot still runs analysis and generates signals but will not place any orders on the exchange."
             paused={controls?.execution_paused ?? false}
             available={true}
             unavailableReason={null}
@@ -66,7 +68,18 @@ export default function ControlsPage() {
           <ControlCard
             icon={<BrainCircuit size={20} />}
             title="Advisory Crew"
-            description="AI agents that review signals under high uncertainty. Requires an OpenAI API key to function."
+            helpText={
+              "The advisory crew is not a persistent process — it has no always-on 'active' mode. " +
+              "Each cycle the bot computes an uncertainty score (0–1) from six market factors " +
+              "(volatility, sentiment, strategy disagreement, drawdown proximity, regime change). " +
+              "If the score reaches the activation threshold (default 0.6) the crew runs once " +
+              "for that cycle, reviews the signals, and stops. The next cycle starts fresh and " +
+              "the score is recomputed from scratch.\n\n" +
+              "Pausing here forces the crew to be skipped every cycle regardless of the score — " +
+              "useful when you want to reduce LLM costs or investigate signals without AI interference. " +
+              "The deterministic pipeline continues running normally either way."
+            }
+            description="AI agents that activate automatically when the uncertainty score exceeds the threshold — at most once per cycle. Idle whenever market conditions are clear."
             paused={controls?.advisory_paused ?? false}
             available={controls?.advisory_available ?? false}
             unavailableReason={
@@ -118,6 +131,7 @@ export default function ControlsPage() {
 interface ControlCardProps {
   icon: React.ReactNode;
   title: string;
+  helpText?: string;
   description: string;
   paused: boolean;
   available: boolean;
@@ -129,6 +143,7 @@ interface ControlCardProps {
 function ControlCard({
   icon,
   title,
+  helpText,
   description,
   paused,
   available,
@@ -172,7 +187,10 @@ function ControlCard({
         </span>
       </div>
 
-      <h3 className="mt-4 font-semibold text-gray-900">{title}</h3>
+      <h3 className="mt-4 flex items-center font-semibold text-gray-900">
+        {title}
+        {helpText && <HelpTooltip text={helpText} />}
+      </h3>
       <p className="mt-1 text-sm text-gray-500">{description}</p>
 
       {unavailableReason && (
