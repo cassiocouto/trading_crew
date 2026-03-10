@@ -268,18 +268,22 @@ export default function MarketsPage() {
   const [showVolume, setShowVolume] = useState(false);
   const [, setTick] = useState(0);
 
-  // Persisted strategy overlay toggles
-  const [enabledOverlays, setEnabledOverlays] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set<string>();
+  // Persisted strategy overlay toggles — init empty so SSR and first client render match; hydrate from localStorage after mount to avoid hydration mismatch.
+  const [enabledOverlays, setEnabledOverlays] = useState<Set<string>>(() => new Set<string>());
+
+  // Hydrate overlay toggles from localStorage after mount (client-only).
+  useEffect(() => {
     try {
       const stored = localStorage.getItem("markets_enabled_overlays");
-      return stored ? new Set(JSON.parse(stored) as string[]) : new Set<string>();
+      if (stored) {
+        setEnabledOverlays(new Set(JSON.parse(stored) as string[]));
+      }
     } catch {
-      return new Set<string>();
+      // ignore parse errors
     }
-  });
+  }, []);
 
-  // Sync overlay toggles to localStorage
+  // Sync overlay toggles to localStorage when they change.
   useEffect(() => {
     try {
       localStorage.setItem("markets_enabled_overlays", JSON.stringify([...enabledOverlays]));
@@ -287,12 +291,6 @@ export default function MarketsPage() {
       // ignore quota / privacy errors
     }
   }, [enabledOverlays]);
-
-  // Live clock for "updated X s ago"
-  useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 1_000);
-    return () => clearInterval(id);
-  }, []);
 
   const selectedSymbol = activeSymbol || symbols?.[0]?.symbol || "";
 
@@ -320,8 +318,21 @@ export default function MarketsPage() {
     ? [...new Set(signals.map((s) => s.strategy_name))]
     : [];
 
-  const lastUpdatedSecs =
-    candleUpdatedAt > 0 ? Math.round((Date.now() - candleUpdatedAt) / 1000) : null;
+  // Only compute on client after mount to avoid Date.now() SSR/client hydration mismatch.
+  const [lastUpdatedSecs, setLastUpdatedSecs] = useState<number | null>(null);
+
+  // Live clock for "updated X s ago" — compute only on client to avoid hydration mismatch.
+  useEffect(() => {
+    const update = () => {
+      setTick((n) => n + 1);
+      if (candleUpdatedAt > 0) {
+        setLastUpdatedSecs(Math.round((Date.now() - candleUpdatedAt) / 1000));
+      }
+    };
+    update();
+    const id = setInterval(update, 1_000);
+    return () => clearInterval(id);
+  }, [candleUpdatedAt]);
 
   // ---------------------------------------------------------------------------
   // Overlay computation
@@ -365,7 +376,9 @@ export default function MarketsPage() {
             ? "Refreshing…"
             : lastUpdatedSecs !== null
               ? `Updated ${lastUpdatedSecs}s ago`
-              : "Live"}
+              : candleUpdatedAt > 0
+                ? "Updated"
+                : "Live"}
           <span className="text-gray-300">·</span>
           <span>chart {REFRESH_CHART_MS / 1000}s</span>
           <span className="text-gray-300">·</span>
