@@ -144,7 +144,9 @@ trading_crew/
 │       │   ├── settings/page.tsx  Non-secret settings form
 │       │   └── backtest/page.tsx
 │       ├── components/
-│       │   └── CandlestickChart.tsx  lightweight-charts v5 wrapper
+│       │   ├── CandlestickChart.tsx  lightweight-charts v5 wrapper
+│       │   ├── ThemeToggle.tsx       Light/Dark/System theme toggle
+│       │   └── Providers.tsx         React Query + next-themes providers
 │       ├── hooks/             React Query hooks + useWebSocket
 │       ├── lib/api.ts         Typed API client
 │       └── types/index.ts     TypeScript interfaces
@@ -710,6 +712,20 @@ Two routers write to files rather than the database:
 - **`routers/controls.py`** (`PATCH /api/controls/`) — writes to `config/runtime.yaml` via `runtime_flags.write()` (threading lock + `os.replace()`), then broadcasts a `controls_updated` WebSocket event.
 
 Both routers use the same atomic write pattern to prevent partial writes if the process is killed mid-write.
+
+### Dashboard theming (dark mode)
+
+The dashboard uses `next-themes` for theme management and Tailwind v4's class-based `dark:` variant (configured via `@custom-variant dark` in `globals.css`). The `<html>` element receives a `dark` class when the dark theme is active, which activates all `dark:*` Tailwind utilities.
+
+When adding or editing dashboard components, always include `dark:` counterparts for hardcoded light colors. The standard mappings are:
+
+- `bg-white` → `dark:bg-gray-900`, `bg-gray-50` → `dark:bg-gray-950`
+- `border-gray-200` → `dark:border-gray-700`, `border-gray-100` → `dark:border-gray-800`
+- `text-gray-900` → `dark:text-gray-100`, `text-gray-700` → `dark:text-gray-300`
+- Status badges use opacity-based backgrounds: `dark:bg-{color}-500/15 dark:text-{color}-400`
+- Form inputs: `dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100`
+
+For chart libraries that use imperative JavaScript APIs (e.g. `lightweight-charts`), import `useTheme()` from `next-themes` and pass `resolvedTheme`-dependent color constants to chart options. See `CandlestickChart.tsx` and `EquityCurve.tsx` for examples.
 
 ### Accessing `db._engine` from routers
 

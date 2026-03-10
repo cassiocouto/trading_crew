@@ -7,13 +7,13 @@ interface Props {
 
 export function AgentCard({ agent }: Props) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-gray-800">{agent.name}</h3>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200">{agent.name}</h3>
         <StatusBadge status={agent.is_active ? "active" : "inactive"} />
       </div>
-      <p className="mt-1 text-xs text-gray-500">{agent.role}</p>
-      <dl className="mt-3 space-y-1 text-sm text-gray-600">
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{agent.role}</p>
+      <dl className="mt-3 space-y-1 text-sm text-gray-600 dark:text-gray-400">
         <div className="flex justify-between">
           <dt>Advisory activations today</dt>
           <dd className="font-medium">{agent.advisory_activations_today}</dd>

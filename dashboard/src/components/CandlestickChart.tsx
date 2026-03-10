@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTheme } from "next-themes";
 import type { IChartApi, Time } from "lightweight-charts";
 import type { OHLCVBar } from "@/types";
 
@@ -45,6 +46,21 @@ const LINE_STYLE_MAP = { solid: 0, dashed: 1, dotted: 2 } as const;
 type AnyLw = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySeries = any;
+
+const CHART_COLORS = {
+  light: {
+    bg: "#ffffff",
+    text: "#374151",
+    grid: "#f3f4f6",
+    border: "#e5e7eb",
+  },
+  dark: {
+    bg: "#030712",
+    text: "#d1d5db",
+    grid: "#1f2937",
+    border: "#374151",
+  },
+} as const;
 
 /**
  * Diff-based overlay application.  Adds new series, removes stale ones, and
@@ -125,6 +141,7 @@ export function CandlestickChart({
   overlayLines,
 }: CandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
 
   // Live references so the overlay effect and the async init share state
   // without additional effect dependencies.
@@ -138,8 +155,11 @@ export function CandlestickChart({
   const overlayLinesRef = useRef<OverlayLine[]>(overlayLines ?? []);
   overlayLinesRef.current = overlayLines ?? [];
 
+  const isDark = resolvedTheme === "dark";
+  const colors = isDark ? CHART_COLORS.dark : CHART_COLORS.light;
+
   // ---------------------------------------------------------------------------
-  // Effect 1: chart lifecycle — recreate when data / height / volume change.
+  // Effect 1: chart lifecycle — recreate when data / height / volume / theme change.
   // Does NOT depend on overlayLines so EMA / BB toggles never cause a rebuild.
   // ---------------------------------------------------------------------------
   useEffect(() => {
@@ -165,17 +185,17 @@ export function CandlestickChart({
         width: el.clientWidth,
         height,
         layout: {
-          background: { type: lw.ColorType.Solid, color: "#ffffff" },
-          textColor: "#374151",
+          background: { type: lw.ColorType.Solid, color: colors.bg },
+          textColor: colors.text,
         },
         grid: {
-          vertLines: { color: "#f3f4f6" },
-          horzLines: { color: "#f3f4f6" },
+          vertLines: { color: colors.grid },
+          horzLines: { color: colors.grid },
         },
         crosshair: { mode: lw.CrosshairMode.Normal },
-        rightPriceScale: { borderColor: "#e5e7eb" },
+        rightPriceScale: { borderColor: colors.border },
         timeScale: {
-          borderColor: "#e5e7eb",
+          borderColor: colors.border,
           timeVisible: true,
           secondsVisible: false,
         },
@@ -247,7 +267,7 @@ export function CandlestickChart({
         lwRef.current = null;
       }
     };
-  }, [data, height, showVolume]);
+  }, [data, height, showVolume, colors]);
 
   // ---------------------------------------------------------------------------
   // Effect 2: overlay series — diff and update without touching the chart.
@@ -264,7 +284,7 @@ export function CandlestickChart({
   if (data.length === 0) {
     return (
       <div
-        className="flex items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-400"
+        className="flex items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-500"
         style={{ height }}
       >
         No market data collected yet for this symbol.

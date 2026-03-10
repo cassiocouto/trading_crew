@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dark mode** — dashboard-wide dark theme with a three-state toggle (Light / Dark / System) in the sidebar; persisted to `localStorage` and respects the OS `prefers-color-scheme` preference by default; powered by `next-themes` with Tailwind v4 class-based `@custom-variant dark`; all 21 component and page files updated with `dark:` variants; chart libraries (`lightweight-charts` and `recharts`) render with theme-aware colors that update on toggle; native form controls and scrollbars adapt automatically via `color-scheme: dark`
 - **Markets page sidebar** — three collapsible panels added alongside the candlestick chart:
   - **Cycle & Strategies** — current cycle number and a per-strategy summary (buy/sell signal counts, avg confidence) for every strategy that has produced signals for the selected symbol
   - **Latest Signals** — last 30 signals for the selected symbol; each row shows signal type, strategy, confidence bar, risk verdict, and timestamp; click any row to expand the full **reasoning text** (`reason` field) written by the strategy

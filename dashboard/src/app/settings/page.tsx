@@ -82,9 +82,9 @@ export default function SettingsPage() {
   if (isLoading || !form) {
     return (
       <div className="space-y-4">
-        <div className="h-8 w-48 animate-pulse rounded bg-gray-200" />
+        <div className="h-8 w-48 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-40 animate-pulse rounded-xl bg-gray-100" />
+          <div key={i} className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
         ))}
       </div>
     );
@@ -95,10 +95,10 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
-          <p className="mt-0.5 text-sm text-gray-500">
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Settings</h1>
+          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
             Non-secret configuration — saved to{" "}
-            <code className="rounded bg-gray-100 px-1 text-xs">settings.yaml</code>. Most changes
+            <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">settings.yaml</code>. Most changes
             require a bot restart.
           </p>
         </div>
@@ -106,7 +106,7 @@ export default function SettingsPage() {
           {dirty && (
             <button
               onClick={reset}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
             >
               <RotateCcw size={14} />
               Reset
@@ -125,7 +125,7 @@ export default function SettingsPage() {
 
       {/* Banners */}
       {saved && (
-        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300">
           <CheckCircle size={16} />
           Settings saved. Most changes take effect on the next bot restart. Use the{" "}
           <a href="/controls" className="underline">
@@ -135,17 +135,17 @@ export default function SettingsPage() {
         </div>
       )}
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           {error}
         </div>
       )}
 
       {/* Secrets notice */}
-      <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+      <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
         <KeyRound size={15} className="mt-0.5 shrink-0" />
         API keys, tokens, and database URL are managed in your{" "}
-        <code className="rounded bg-blue-100 px-1 text-xs">.env</code> file and are never
+        <code className="rounded bg-blue-100 px-1 text-xs dark:bg-blue-900/40">.env</code> file and are never
         stored here.
       </div>
 
@@ -423,11 +423,11 @@ export default function SettingsPage() {
       {/* Section: Advisory Crew */}
       <Section title="Advisory Crew">
         {!form.advisory_llm_configured && (
-          <div className="col-span-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          <div className="col-span-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
             <Info size={15} className="mt-0.5 shrink-0" />
             No LLM API key detected. Set{" "}
-            <code className="rounded bg-amber-100 px-1 text-xs">OPENAI_API_KEY</code> in{" "}
-            <code className="rounded bg-amber-100 px-1 text-xs">.env</code> for the advisory crew
+            <code className="rounded bg-amber-100 px-1 text-xs dark:bg-amber-900/40">OPENAI_API_KEY</code> in{" "}
+            <code className="rounded bg-amber-100 px-1 text-xs dark:bg-amber-900/40">.env</code> for the advisory crew
             to function.
           </div>
         )}
@@ -476,7 +476,7 @@ export default function SettingsPage() {
           tooltip="normal = advisory continues even after the daily limit is reached (logs a warning). budget_stop = advisory is fully disabled for the rest of the day once the limit is hit."
         />
         <div className="col-span-2">
-          <p className="mb-1 flex items-center text-xs font-medium uppercase tracking-wide text-gray-400">
+          <p className="mb-1 flex items-center text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
             Uncertainty Score Weights
             <HelpTooltip text="Each cycle, six market factors are each multiplied by their weight and summed. The result is clamped to [0–1] to produce the uncertainty score. The default weights sum to 1.5 (not 1.0) — this is intentional: multiple factors firing together push the score up aggressively, while a single factor alone cannot reach the default threshold of 0.6. Higher weight = that factor triggers the advisory more readily." />
           </p>
@@ -526,12 +526,12 @@ export default function SettingsPage() {
 
       {/* Footer save bar */}
       {dirty && (
-        <div className="fixed bottom-0 left-52 right-0 flex items-center justify-between border-t border-gray-200 bg-white px-6 py-3 shadow-md">
-          <span className="text-sm text-gray-500">You have unsaved changes.</span>
+        <div className="fixed bottom-0 left-52 right-0 flex items-center justify-between border-t border-gray-200 bg-white px-6 py-3 shadow-md dark:border-gray-700 dark:bg-gray-900">
+          <span className="text-sm text-gray-500 dark:text-gray-400">You have unsaved changes.</span>
           <div className="flex gap-3">
             <button
               onClick={reset}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
             >
               Discard
             </button>
@@ -556,8 +556,8 @@ export default function SettingsPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-400">{title}</h2>
+    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">{title}</h2>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>
     </div>
   );
@@ -578,7 +578,7 @@ function TextField({
 }) {
   return (
     <div>
-      <label className="mb-1 flex items-center text-sm font-medium text-gray-700">
+      <label className="mb-1 flex items-center text-sm font-medium text-gray-700 dark:text-gray-300">
         {label}
         {tooltip && <HelpTooltip text={tooltip} />}
       </label>
@@ -586,9 +586,9 @@ function TextField({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
       />
-      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{hint}</p>}
     </div>
   );
 }
@@ -614,7 +614,7 @@ function NumberField({
 }) {
   return (
     <div>
-      <label className="mb-1 flex items-center text-sm font-medium text-gray-700">
+      <label className="mb-1 flex items-center text-sm font-medium text-gray-700 dark:text-gray-300">
         {label}
         {tooltip && <HelpTooltip text={tooltip} />}
       </label>
@@ -628,9 +628,9 @@ function NumberField({
           const v = parseFloat(e.target.value);
           if (!Number.isNaN(v)) onChange(v);
         }}
-        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
       />
-      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{hint}</p>}
     </div>
   );
 }
@@ -651,11 +651,11 @@ function BoolField({
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
-        <p className="flex items-center text-sm font-medium text-gray-700">
+        <p className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300">
           {label}
           {tooltip && <HelpTooltip text={tooltip} />}
         </p>
-        {hint && <p className="mt-0.5 text-xs text-gray-400">{hint}</p>}
+        {hint && <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{hint}</p>}
       </div>
       <button
         type="button"
@@ -663,11 +663,11 @@ function BoolField({
         aria-checked={value}
         onClick={() => onChange(!value)}
         className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-          value ? "bg-indigo-600" : "bg-gray-200"
+          value ? "bg-indigo-600" : "bg-gray-200 dark:bg-gray-600"
         }`}
       >
         <span
-          className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${
+          className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform dark:bg-gray-200 ${
             value ? "translate-x-5" : "translate-x-0"
           }`}
         />
@@ -693,14 +693,14 @@ function SelectField({
 }) {
   return (
     <div>
-      <label className="mb-1 flex items-center text-sm font-medium text-gray-700">
+      <label className="mb-1 flex items-center text-sm font-medium text-gray-700 dark:text-gray-300">
         {label}
         {tooltip && <HelpTooltip text={tooltip} />}
       </label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
       >
         {options.map((o) => (
           <option key={o} value={o}>
@@ -708,7 +708,7 @@ function SelectField({
           </option>
         ))}
       </select>
-      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{hint}</p>}
     </div>
   );
 }
@@ -728,7 +728,7 @@ function ArrayField({
 }) {
   return (
     <div>
-      <label className="mb-1 flex items-center text-sm font-medium text-gray-700">
+      <label className="mb-1 flex items-center text-sm font-medium text-gray-700 dark:text-gray-300">
         {label}
         {tooltip && <HelpTooltip text={tooltip} />}
       </label>
@@ -743,9 +743,9 @@ function ArrayField({
               .filter(Boolean)
           )
         }
-        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
       />
-      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{hint}</p>}
     </div>
   );
 }

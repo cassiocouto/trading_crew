@@ -21,9 +21,23 @@ const TOOLTIP =
   "When the score reaches the activation threshold the advisory AI crew is invoked once for that cycle.";
 
 function scoreColor(score: number, threshold: number) {
-  if (score >= threshold) return { bg: "bg-red-100", text: "text-red-700", bar: "bg-red-400" };
-  if (score >= threshold * 0.6) return { bg: "bg-amber-100", text: "text-amber-700", bar: "bg-amber-400" };
-  return { bg: "bg-green-100", text: "text-green-700", bar: "bg-green-400" };
+  if (score >= threshold)
+    return {
+      bg: "bg-red-100 dark:bg-red-500/15",
+      text: "text-red-700 dark:text-red-400",
+      bar: "bg-red-400",
+    };
+  if (score >= threshold * 0.6)
+    return {
+      bg: "bg-amber-100 dark:bg-amber-500/15",
+      text: "text-amber-700 dark:text-amber-400",
+      bar: "bg-amber-400",
+    };
+  return {
+    bg: "bg-green-100 dark:bg-green-500/15",
+    text: "text-green-700 dark:text-green-400",
+    bar: "bg-green-400",
+  };
 }
 
 export function UncertaintyScoreBadge({
@@ -49,7 +63,7 @@ export function UncertaintyScoreBadge({
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
-        <span className="flex items-center text-gray-500">
+        <span className="flex items-center text-gray-500 dark:text-gray-400">
           Uncertainty score
           <HelpTooltip text={TOOLTIP} />
         </span>
@@ -60,27 +74,27 @@ export function UncertaintyScoreBadge({
       </div>
 
       {/* Progress bar with threshold marker */}
-      <div className="relative h-2 w-full overflow-visible rounded-full bg-gray-100">
+      <div className="relative h-2 w-full overflow-visible rounded-full bg-gray-100 dark:bg-gray-800">
         <div
           className={`h-full rounded-full transition-all ${c.bar}`}
           style={{ width: `${pct}%` }}
         />
         {/* Threshold tick */}
         <div
-          className="absolute top-[-2px] h-[10px] w-px bg-gray-400"
+          className="absolute top-[-2px] h-[10px] w-px bg-gray-400 dark:bg-gray-500"
           style={{ left: `${thresholdPct}%` }}
           title={`Activation threshold: ${threshold.toFixed(2)}`}
         />
       </div>
 
-      <div className="flex items-center justify-between text-[10px] text-gray-400">
+      <div className="flex items-center justify-between text-[10px] text-gray-400 dark:text-gray-500">
         <span>0</span>
         <span>threshold {threshold.toFixed(2)}</span>
         <span>1</span>
       </div>
 
       {advisoryRan && (
-        <p className="text-[10px] text-purple-600">⚡ Advisory crew activated this cycle</p>
+        <p className="text-[10px] text-purple-600 dark:text-purple-400">⚡ Advisory crew activated this cycle</p>
       )}
     </div>
   );

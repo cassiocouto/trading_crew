@@ -17,11 +17,11 @@ function BacktestError({ message }: { message: string }) {
   const needsData = /no ohlcv data|fetch data/i.test(detail);
 
   return (
-    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-4">
-      <p className="text-sm font-medium text-red-800">{detail}</p>
+    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+      <p className="text-sm font-medium text-red-800 dark:text-red-300">{detail}</p>
       {needsData && (
-        <p className="mt-2 text-xs text-red-600">
-          Run <code className="rounded bg-red-100 px-1.5 py-0.5 font-mono">make backtest-data</code> in
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+          Run <code className="rounded bg-red-100 px-1.5 py-0.5 font-mono dark:bg-red-900/40">make backtest-data</code> in
           the project root to fetch historical candles first.
         </p>
       )}
@@ -61,7 +61,7 @@ export default function BacktestPage() {
       <h1 className="text-xl font-bold">Backtest</h1>
 
       {/* Config form */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
         <h2 className="mb-4 font-semibold">Configuration</h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           {(
@@ -77,10 +77,10 @@ export default function BacktestPage() {
             ] as { key: keyof typeof form; label: string; type?: string }[]
           ).map(({ key, label, type = "text" }) => (
             <div key={key}>
-              <label className="mb-1 block text-xs font-medium text-gray-600">{label}</label>
+              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{label}</label>
               <input
                 type={type}
-                className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm"
+                className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                 value={form[key] as string | number}
                 step={type === "number" ? "any" : undefined}
                 onChange={(e) =>
@@ -93,9 +93,9 @@ export default function BacktestPage() {
             </div>
           ))}
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Advisory Mode</label>
+            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Advisory Mode</label>
             <select
-              className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm bg-white"
+              className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm bg-white dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               value={form.advisory_mode}
               onChange={(e) => setForm((f) => ({ ...f, advisory_mode: e.target.value }))}
             >
@@ -107,13 +107,13 @@ export default function BacktestPage() {
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600"
                 checked={form.simulation_mode}
                 onChange={(e) => setForm((f) => ({ ...f, simulation_mode: e.target.checked }))}
               />
-              <span className="font-medium text-gray-700">Full Simulation</span>
+              <span className="font-medium text-gray-700 dark:text-gray-300">Full Simulation</span>
             </label>
-            <span className="ml-1 text-[10px] text-gray-400" title="Run the real TradingFlow against historical data instead of the fast legacy backtest">(?)</span>
+            <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500" title="Run the real TradingFlow against historical data instead of the fast legacy backtest">(?)</span>
           </div>
         </div>
 
@@ -150,20 +150,20 @@ export default function BacktestPage() {
                   ]
                 : []),
             ].map(({ label, value }) => (
-              <div key={label} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-                <p className="text-xs text-gray-500">{label}</p>
+              <div key={label} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+                <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
                 <p className="mt-0.5 text-lg font-bold">{value}</p>
               </div>
             ))}
           </div>
 
           {/* Trade table */}
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
             <h2 className="mb-3 font-semibold">Trades ({result.trades.length})</h2>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left text-xs font-medium uppercase text-gray-500">
+                  <tr className="border-b border-gray-200 text-left text-xs font-medium uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="py-2 pr-4">Symbol</th>
                     <th className="py-2 pr-4">Entry Bar</th>
                     <th className="py-2 pr-4">Exit Bar</th>
@@ -176,7 +176,7 @@ export default function BacktestPage() {
                 </thead>
                 <tbody>
                   {result.trades.map((t, i) => (
-                    <tr key={i} className="border-b last:border-0">
+                    <tr key={i} className="border-b border-gray-100 last:border-0 dark:border-gray-800">
                       <td className="py-2 pr-4 font-medium">{t.symbol}</td>
                       <td className="py-2 pr-4">{t.entry_bar}</td>
                       <td className="py-2 pr-4">{t.exit_bar >= 0 ? t.exit_bar : "—"}</td>
@@ -187,7 +187,7 @@ export default function BacktestPage() {
                       <td className="py-2 pr-4">{t.amount.toFixed(6)}</td>
                       <td
                         className={`py-2 pr-4 font-medium ${
-                          t.pnl >= 0 ? "text-green-600" : "text-red-600"
+                          t.pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                         }`}
                       >
                         {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}

@@ -22,7 +22,7 @@ export default function OverviewPage() {
       <h1 className="text-xl font-bold">Overview</h1>
 
       {cb && (
-        <div className="flex items-center gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+        <div className="flex items-center gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
           <AlertTriangle className="h-5 w-5 shrink-0" />
           <span className="font-medium">Circuit breaker active — trading halted</span>
         </div>
@@ -56,13 +56,13 @@ export default function OverviewPage() {
 
       {/* Last cycle summary */}
       {latestCycle.data && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-400">
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
             Last Cycle #{latestCycle.data.cycle_number}
           </p>
           <div className="flex flex-wrap items-center gap-3 text-sm mb-4">
             <StatusBadge status={latestCycle.data.circuit_breaker_tripped ? "rejected" : "filled"} />
-            <span className="text-gray-600">
+            <span className="text-gray-600 dark:text-gray-400">
               {latestCycle.data.num_orders_filled} fills / {latestCycle.data.num_signals} signals
             </span>
           </div>
@@ -75,7 +75,7 @@ export default function OverviewPage() {
       )}
 
       {/* Open positions */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
         <h2 className="mb-3 font-semibold">Open Positions</h2>
         <PositionsTable positions={p?.positions ?? {}} />
       </div>
@@ -84,13 +84,13 @@ export default function OverviewPage() {
       <div>
         <h2 className="mb-3 font-semibold">Advisory Crew</h2>
         {systemStatus.data && (
-          <div className="mb-4 flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm text-sm">
-            <Shield className="h-5 w-5 text-purple-600 shrink-0" />
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm text-sm dark:border-gray-700 dark:bg-gray-900">
+            <Shield className="h-5 w-5 text-purple-600 shrink-0 dark:text-purple-400" />
             <span className="font-medium">
               Advisory {systemStatus.data.advisory_enabled ? "enabled" : "disabled"}
             </span>
-            <span className="text-gray-400">|</span>
-            <span className="text-gray-600">
+            <span className="text-gray-400 dark:text-gray-500">|</span>
+            <span className="text-gray-600 dark:text-gray-400">
               Threshold: {systemStatus.data.advisory_activation_threshold.toFixed(2)}
             </span>
           </div>

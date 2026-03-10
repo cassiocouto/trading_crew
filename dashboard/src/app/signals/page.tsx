@@ -20,7 +20,7 @@ export default function SignalsPage() {
       {/* Filter */}
       <div className="flex items-center gap-3">
         <select
-          className="rounded-md border border-gray-200 px-3 py-1.5 text-sm"
+          className="rounded-md border border-gray-200 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
           value={strategy}
           onChange={(e) => setStrategy(e.target.value)}
         >
@@ -31,19 +31,19 @@ export default function SignalsPage() {
             </option>
           ))}
         </select>
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-gray-400 dark:text-gray-500">
           {signals.data?.length ?? 0} signals shown
         </span>
       </div>
 
       {/* Signal feed */}
       <div className="space-y-2">
-        {signals.isLoading && <p className="text-sm text-gray-400">Loading…</p>}
+        {signals.isLoading && <p className="text-sm text-gray-400 dark:text-gray-500">Loading…</p>}
         {(signals.data ?? []).map((s) => (
           <SignalRow key={s.id} signal={s} />
         ))}
         {!signals.isLoading && (signals.data ?? []).length === 0 && (
-          <p className="text-sm text-gray-400">No signals found</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">No signals found</p>
         )}
       </div>
     </div>

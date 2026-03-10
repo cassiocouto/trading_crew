@@ -51,16 +51,10 @@ const SIGNALS_LIMIT = 30;
 // ---------------------------------------------------------------------------
 
 interface StrategyDef {
-  /** Must exactly match the backend strategy's `name` class attribute.
-   *  If the strategy is renamed in Python the overlay silently stops
-   *  associating with its signals — keep these in sync. */
   id: string;
   label: string;
-  /** Primary color used for the toggle pill border and the first overlay line. */
   color: string;
-  /** Shown in the HelpTooltip next to the toggle pill. */
   description: string;
-  /** Shown in the native title tooltip on hover (lists indicator names). */
   indicatorLabels: string[];
   buildOverlays: (bars: OHLCVBar[]) => OverlayLine[];
 }
@@ -121,14 +115,10 @@ const STRATEGY_DEFS: StrategyDef[] = [
     indicatorLabels: ["RSI 14", "Overbought 70", "Oversold 30", "Range High", "Range Low"],
     buildOverlays: (bars) => {
       const rsiData = rsiAligned(bars, 14);
-      // range_high / range_low are scalar values — synthesised as flat series.
-      // Use reduce rather than Math.max(...array) to avoid stack overflow at
-      // high OHLCV_LIMIT values (spread puts every element on the call stack).
       const rangeHigh = bars.reduce((m, b) => Math.max(m, b.high), -Infinity);
       const rangeLow = bars.reduce((m, b) => Math.min(m, b.low), Infinity);
       const flatHigh = bars.map((b) => ({ time: b.timestamp, value: rangeHigh }));
       const flatLow = bars.map((b) => ({ time: b.timestamp, value: rangeLow }));
-      // RSI reference levels (30 / 70) — flat series in the RSI sub-pane
       const rsiTimes = rsiData.map((d) => d.time);
       const ob = rsiTimes.map((t) => ({ time: t, value: 70 }));
       const os = rsiTimes.map((t) => ({ time: t, value: 30 }));
@@ -247,10 +237,10 @@ function calcATR(bars: OHLCVBar[], period = 14): number | null {
 }
 
 function volatilityRegime(atrPct: number): { label: string; color: string } {
-  if (atrPct < 1) return { label: "Low", color: "text-emerald-600" };
-  if (atrPct < 2) return { label: "Normal", color: "text-blue-600" };
-  if (atrPct < 4) return { label: "Elevated", color: "text-amber-600" };
-  return { label: "High", color: "text-red-600" };
+  if (atrPct < 1) return { label: "Low", color: "text-emerald-600 dark:text-emerald-400" };
+  if (atrPct < 2) return { label: "Normal", color: "text-blue-600 dark:text-blue-400" };
+  if (atrPct < 4) return { label: "Elevated", color: "text-amber-600 dark:text-amber-400" };
+  return { label: "High", color: "text-red-600 dark:text-red-400" };
 }
 
 // ---------------------------------------------------------------------------
@@ -268,10 +258,8 @@ export default function MarketsPage() {
   const [showVolume, setShowVolume] = useState(false);
   const [, setTick] = useState(0);
 
-  // Persisted strategy overlay toggles — init empty so SSR and first client render match; hydrate from localStorage after mount to avoid hydration mismatch.
   const [enabledOverlays, setEnabledOverlays] = useState<Set<string>>(() => new Set<string>());
 
-  // Hydrate overlay toggles from localStorage after mount (client-only).
   useEffect(() => {
     try {
       const stored = localStorage.getItem("markets_enabled_overlays");
@@ -283,7 +271,6 @@ export default function MarketsPage() {
     }
   }, []);
 
-  // Sync overlay toggles to localStorage when they change.
   useEffect(() => {
     try {
       localStorage.setItem("markets_enabled_overlays", JSON.stringify([...enabledOverlays]));
@@ -313,15 +300,12 @@ export default function MarketsPage() {
 
   const activeSymbolData = symbols?.find((s) => s.symbol === selectedSymbol);
 
-  // Strategies that have produced signals for this symbol (for CycleStrategyPanel)
   const activeStrategies = signals
     ? [...new Set(signals.map((s) => s.strategy_name))]
     : [];
 
-  // Only compute on client after mount to avoid Date.now() SSR/client hydration mismatch.
   const [lastUpdatedSecs, setLastUpdatedSecs] = useState<number | null>(null);
 
-  // Live clock for "updated X s ago" — compute only on client to avoid hydration mismatch.
   useEffect(() => {
     const update = () => {
       setTick((n) => n + 1);
@@ -346,7 +330,6 @@ export default function MarketsPage() {
     [enabledOverlays, ohlcv],
   );
 
-  // Chart height grows to accommodate RSI / MACD sub-panes
   const hasRsiPane = enabledOverlays.has("rsi_range");
   const hasMacdPane = enabledOverlays.has("macd_crossover");
   const chartHeight = 420 + (hasRsiPane ? 120 : 0) + (hasMacdPane ? 150 : 0);
@@ -360,15 +343,15 @@ export default function MarketsPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="flex items-center text-xl font-semibold text-gray-900">
+          <h1 className="flex items-center text-xl font-semibold text-gray-900 dark:text-gray-100">
             Markets
             <HelpTooltip text="Live price candles and technical overlays for each tracked symbol. Toggle strategy indicators with the pill buttons above the chart." />
           </h1>
-          <p className="mt-0.5 text-sm text-gray-500">
+          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
             Price, signals, and order history for tracked symbols.
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-500 shadow-sm">
+        <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
           <span
             className={`h-2 w-2 rounded-full ${candleFetching ? "animate-pulse bg-amber-400" : "bg-emerald-400"}`}
           />
@@ -379,19 +362,19 @@ export default function MarketsPage() {
               : candleUpdatedAt > 0
                 ? "Updated"
                 : "Live"}
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-gray-600">·</span>
           <span>chart {REFRESH_CHART_MS / 1000}s</span>
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-gray-600">·</span>
           <span>signals {REFRESH_SIGNALS_MS / 1000}s</span>
         </div>
       </div>
 
       {/* Symbol + timeframe selectors */}
       {symbolsLoading ? (
-        <div className="h-12 animate-pulse rounded-lg bg-gray-100" />
+        <div className="h-12 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : (
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-1">
+          <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-1 dark:border-gray-700 dark:bg-gray-900">
             {symbols?.map((s) => (
               <button
                 key={s.symbol}
@@ -399,14 +382,14 @@ export default function MarketsPage() {
                 className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                   selectedSymbol === s.symbol
                     ? "bg-indigo-600 text-white"
-                    : "text-gray-600 hover:bg-gray-50"
+                    : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800"
                 }`}
               >
                 {s.symbol}
               </button>
             ))}
           </div>
-          <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-1">
+          <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-1 dark:border-gray-700 dark:bg-gray-900">
             {TIMEFRAMES.map((tf) => (
               <button
                 key={tf.value}
@@ -414,7 +397,7 @@ export default function MarketsPage() {
                 className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                   timeframe === tf.value
                     ? "bg-indigo-600 text-white"
-                    : "text-gray-600 hover:bg-gray-50"
+                    : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800"
                 }`}
               >
                 {tf.label}
@@ -445,15 +428,15 @@ export default function MarketsPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Chart — 2/3 width on lg */}
         <div className="lg:col-span-2">
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
             {/* Chart header */}
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-700">
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                 {selectedSymbol} · {timeframe.toUpperCase()}
               </span>
               <div className="flex items-center gap-3">
-                {candlesLoading && <span className="text-xs text-gray-400">Loading…</span>}
-                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-500 select-none">
+                {candlesLoading && <span className="text-xs text-gray-400 dark:text-gray-500">Loading…</span>}
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-500 select-none dark:text-gray-400">
                   <input
                     type="checkbox"
                     checked={showVolume}
@@ -499,7 +482,7 @@ export default function MarketsPage() {
 
             {/* Candlestick chart */}
             {candlesLoading ? (
-              <div className="animate-pulse rounded-lg bg-gray-50" style={{ height: chartHeight }} />
+              <div className="animate-pulse rounded-lg bg-gray-50 dark:bg-gray-800" style={{ height: chartHeight }} />
             ) : (
               <CandlestickChart
                 data={ohlcv ?? []}
@@ -513,7 +496,7 @@ export default function MarketsPage() {
             {overlayLines.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
                 {overlayLines.map((l) => (
-                  <span key={l.id} className="flex items-center gap-1 text-xs text-gray-500">
+                  <span key={l.id} className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                     <span
                       className="inline-block h-2 w-2 shrink-0 rounded-full"
                       style={{ background: l.color.replace(/[0-9a-f]{2}$/i, "ff") }}
@@ -526,7 +509,7 @@ export default function MarketsPage() {
           </div>
 
           {ohlcv && ohlcv.length > 0 && (
-            <p className="mt-2 text-xs text-gray-400">
+            <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
               {ohlcv.length} candles · populated by the trading bot each cycle
             </p>
           )}
@@ -585,7 +568,7 @@ function CycleStrategyPanel({
       helpText="A cycle is one full iteration of the trading loop: the bot fetches prices, runs all strategies, evaluates risk, and (optionally) consults the advisory AI. The cycle number increments with each pass."
       badge={
         cycleNumber != null ? (
-          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
             #{cycleNumber}
           </span>
         ) : undefined
@@ -595,8 +578,8 @@ function CycleStrategyPanel({
     >
       <div className="space-y-3">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-gray-500">Current cycle</span>
-          <span className="font-semibold text-gray-800">
+          <span className="text-gray-500 dark:text-gray-400">Current cycle</span>
+          <span className="font-semibold text-gray-800 dark:text-gray-200">
             {cycleNumber != null ? `#${cycleNumber}` : "—"}
           </span>
         </div>
@@ -608,24 +591,24 @@ function CycleStrategyPanel({
           />
         )}
         <div>
-          <p className="mb-1.5 text-xs text-gray-500">
+          <p className="mb-1.5 text-xs text-gray-500 dark:text-gray-400">
             Strategies active for{" "}
-            <span className="font-medium text-gray-700">{symbol || "—"}</span>
+            <span className="font-medium text-gray-700 dark:text-gray-300">{symbol || "—"}</span>
           </p>
           {activeStrategies.length === 0 ? (
-            <p className="text-xs text-gray-400">No signals generated yet for this symbol.</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">No signals generated yet for this symbol.</p>
           ) : (
             <ul className="space-y-2">
               {statsForSymbolStrategies.length > 0
                 ? statsForSymbolStrategies.map((s) => (
-                    <li key={s.strategy_name} className="rounded-lg bg-gray-50 px-3 py-2">
-                      <p className="text-xs font-semibold text-gray-800">{s.strategy_name}</p>
-                      <div className="mt-1 flex gap-3 text-xs text-gray-500">
+                    <li key={s.strategy_name} className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800">
+                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">{s.strategy_name}</p>
+                      <div className="mt-1 flex gap-3 text-xs text-gray-500 dark:text-gray-400">
                         <span>
-                          <span className="font-medium text-emerald-600">{s.buy_signals}</span> buy
+                          <span className="font-medium text-emerald-600 dark:text-emerald-400">{s.buy_signals}</span> buy
                         </span>
                         <span>
-                          <span className="font-medium text-red-500">{s.sell_signals}</span> sell
+                          <span className="font-medium text-red-500 dark:text-red-400">{s.sell_signals}</span> sell
                         </span>
                         <span>{(s.avg_confidence * 100).toFixed(0)}% avg conf</span>
                       </div>
@@ -634,7 +617,7 @@ function CycleStrategyPanel({
                 : activeStrategies.map((name) => (
                     <li
                       key={name}
-                      className="rounded-lg bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-800"
+                      className="rounded-lg bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-800 dark:bg-gray-800 dark:text-gray-200"
                     >
                       {name}
                     </li>
@@ -667,7 +650,7 @@ function SignalsPanel({
       helpText="A signal is a BUY or SELL recommendation produced by one of the trading strategies. Signals above the minimum confidence threshold are passed to the risk pipeline for position sizing and approval."
       badge={
         signals.length > 0 ? (
-          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
             {signals.length}
           </span>
         ) : undefined
@@ -678,13 +661,13 @@ function SignalsPanel({
       {loading ? (
         <div className="space-y-2">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />
+            <div key={i} className="h-10 animate-pulse rounded bg-gray-50 dark:bg-gray-800" />
           ))}
         </div>
       ) : signals.length === 0 ? (
-        <p className="py-4 text-center text-xs text-gray-400">No signals for this symbol yet.</p>
+        <p className="py-4 text-center text-xs text-gray-400 dark:text-gray-500">No signals for this symbol yet.</p>
       ) : (
-        <ul className="divide-y divide-gray-50">
+        <ul className="divide-y divide-gray-50 dark:divide-gray-800">
           {signals.map((sig) => (
             <li key={sig.id} className="py-2 first:pt-0 last:pb-0">
               <button
@@ -693,21 +676,21 @@ function SignalsPanel({
               >
                 <div className="flex items-center gap-1.5">
                   <SignalTypeBadge type={sig.signal_type} />
-                  <span className="text-xs font-medium text-gray-800">{sig.strategy_name}</span>
-                  <span className="ml-auto shrink-0 text-xs text-gray-400">
+                  <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{sig.strategy_name}</span>
+                  <span className="ml-auto shrink-0 text-xs text-gray-400 dark:text-gray-500">
                     {fmtDate(sig.timestamp)}
                   </span>
                 </div>
                 <div className="mt-0.5 flex items-center gap-2">
                   <ConfidenceBar confidence={sig.confidence} />
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
                     {(sig.confidence * 100).toFixed(0)}% · {sig.strength}
                   </span>
                   {sig.risk_verdict && <RiskVerdictBadge verdict={sig.risk_verdict} />}
                 </div>
               </button>
               {expanded === sig.id && sig.reason && (
-                <div className="mt-1.5 rounded bg-gray-50 px-2 py-2 text-xs leading-relaxed text-gray-600">
+                <div className="mt-1.5 rounded bg-gray-50 px-2 py-2 text-xs leading-relaxed text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                   {sig.reason}
                 </div>
               )}
@@ -753,7 +736,7 @@ function VolatilityPanel({ bars }: { bars: OHLCVBar[] }) {
       onToggle={() => setOpen((v) => !v)}
     >
       {bars.length < 15 ? (
-        <p className="py-4 text-center text-xs text-gray-400">
+        <p className="py-4 text-center text-xs text-gray-400 dark:text-gray-500">
           Not enough candles to compute ATR (need ≥ 15).
         </p>
       ) : (
@@ -790,11 +773,11 @@ function VolatilityPanel({ bars }: { bars: OHLCVBar[] }) {
 function VolRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <dt className="flex items-center text-xs text-gray-500">
+      <dt className="flex items-center text-xs text-gray-500 dark:text-gray-400">
         {label}
         {hint && <HelpTooltip text={hint} />}
       </dt>
-      <dd className="text-xs font-semibold text-gray-800">{value}</dd>
+      <dd className="text-xs font-semibold text-gray-800 dark:text-gray-200">{value}</dd>
     </div>
   );
 }
@@ -811,7 +794,7 @@ function OrdersPanel({ orders, loading }: { orders: OrderResponse[]; loading: bo
       title="Orders"
       badge={
         orders.length > 0 ? (
-          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
             {orders.length}
           </span>
         ) : undefined
@@ -822,13 +805,13 @@ function OrdersPanel({ orders, loading }: { orders: OrderResponse[]; loading: bo
       {loading ? (
         <div className="space-y-2">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />
+            <div key={i} className="h-10 animate-pulse rounded bg-gray-50 dark:bg-gray-800" />
           ))}
         </div>
       ) : orders.length === 0 ? (
-        <p className="py-4 text-center text-xs text-gray-400">No orders for this symbol.</p>
+        <p className="py-4 text-center text-xs text-gray-400 dark:text-gray-500">No orders for this symbol.</p>
       ) : (
-        <ul className="divide-y divide-gray-50">
+        <ul className="divide-y divide-gray-50 dark:divide-gray-800">
           {orders.map((o) => (
             <li
               key={o.id}
@@ -837,11 +820,11 @@ function OrdersPanel({ orders, loading }: { orders: OrderResponse[]; loading: bo
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <SideBadge side={o.side} />
-                  <span className="truncate text-xs font-medium text-gray-800">
+                  <span className="truncate text-xs font-medium text-gray-800 dark:text-gray-200">
                     {o.average_fill_price?.toFixed(2) ?? o.requested_price?.toFixed(2) ?? "—"}
                   </span>
                 </div>
-                <p className="mt-0.5 truncate text-xs text-gray-400">
+                <p className="mt-0.5 truncate text-xs text-gray-400 dark:text-gray-500">
                   {o.strategy_name} · {fmtDate(o.created_at)}
                 </p>
               </div>
@@ -872,7 +855,7 @@ function FailedOrdersPanel({
       title="Failed Orders"
       badge={
         orders.length > 0 ? (
-          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-500/15 dark:text-red-400">
             {orders.length}
           </span>
         ) : undefined
@@ -883,23 +866,23 @@ function FailedOrdersPanel({
       {loading ? (
         <div className="space-y-2">
           {[0, 1].map((i) => (
-            <div key={i} className="h-10 animate-pulse rounded bg-gray-50" />
+            <div key={i} className="h-10 animate-pulse rounded bg-gray-50 dark:bg-gray-800" />
           ))}
         </div>
       ) : orders.length === 0 ? (
-        <p className="py-4 text-center text-xs text-gray-400">No unresolved failures.</p>
+        <p className="py-4 text-center text-xs text-gray-400 dark:text-gray-500">No unresolved failures.</p>
       ) : (
-        <ul className="divide-y divide-gray-50">
+        <ul className="divide-y divide-gray-50 dark:divide-gray-800">
           {orders.map((o) => (
             <li key={o.id} className="py-2 first:pt-0 last:pb-0">
               <div className="flex items-center gap-1.5">
                 <SideBadge side={o.side} />
-                <span className="text-xs font-medium text-gray-800">
+                <span className="text-xs font-medium text-gray-800 dark:text-gray-200">
                   {o.requested_price?.toFixed(2) ?? "market"}
                 </span>
-                <span className="ml-auto text-xs text-gray-400">{fmtDate(o.timestamp)}</span>
+                <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">{fmtDate(o.timestamp)}</span>
               </div>
-              <p className="mt-0.5 truncate text-xs text-red-500" title={o.error_reason}>
+              <p className="mt-0.5 truncate text-xs text-red-500 dark:text-red-400" title={o.error_reason}>
                 {o.error_reason}
               </p>
             </li>
@@ -930,9 +913,7 @@ function SidebarPanel({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-      {/* Use a div instead of button so HelpTooltip's <button> is not nested
-          inside another <button> (invalid HTML / hydration error). */}
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <div
         role="button"
         tabIndex={0}
@@ -946,9 +927,8 @@ function SidebarPanel({
         className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left"
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-gray-700">{title}</span>
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</span>
           {helpText && (
-            // Stop propagation so clicking ? doesn't also toggle the panel
             <span onClick={(e) => e.stopPropagation()}>
               <HelpTooltip text={helpText} />
             </span>
@@ -956,7 +936,7 @@ function SidebarPanel({
           {badge}
         </div>
         <svg
-          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform dark:text-gray-500 ${open ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -965,7 +945,7 @@ function SidebarPanel({
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </div>
-      {open && <div className="border-t border-gray-100 px-4 py-3">{children}</div>}
+      {open && <div className="border-t border-gray-100 px-4 py-3 dark:border-gray-800">{children}</div>}
     </div>
   );
 }
@@ -974,10 +954,10 @@ function SignalTypeBadge({ type }: { type: string }) {
   const t = type.toLowerCase();
   const cls =
     t === "buy"
-      ? "bg-emerald-100 text-emerald-700"
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
       : t === "sell"
-        ? "bg-red-100 text-red-700"
-        : "bg-gray-100 text-gray-600";
+        ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400"
+        : "bg-gray-100 text-gray-600 dark:bg-gray-500/15 dark:text-gray-400";
   return (
     <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-bold uppercase ${cls}`}>
       {type}
@@ -989,10 +969,10 @@ function RiskVerdictBadge({ verdict }: { verdict: string }) {
   const v = verdict.toLowerCase();
   const cls =
     v === "approved"
-      ? "bg-emerald-50 text-emerald-600"
+      ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"
       : v === "rejected"
-        ? "bg-red-50 text-red-600"
-        : "bg-gray-50 text-gray-500";
+        ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400"
+        : "bg-gray-50 text-gray-500 dark:bg-gray-500/10 dark:text-gray-400";
   return <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${cls}`}>{verdict}</span>;
 }
 
@@ -1000,7 +980,7 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
   const pct = Math.round(confidence * 100);
   const color = pct >= 70 ? "bg-emerald-400" : pct >= 40 ? "bg-amber-400" : "bg-red-400";
   return (
-    <div className="h-1.5 w-16 overflow-hidden rounded-full bg-gray-100">
+    <div className="h-1.5 w-16 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
       <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -1011,7 +991,7 @@ function SideBadge({ side }: { side: string }) {
   return (
     <span
       className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-bold uppercase ${
-        isBuy ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+        isBuy ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400" : "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400"
       }`}
     >
       {side}
@@ -1021,15 +1001,15 @@ function SideBadge({ side }: { side: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    filled: "bg-emerald-100 text-emerald-700",
-    open: "bg-blue-100 text-blue-700",
-    cancelled: "bg-gray-100 text-gray-500",
-    failed: "bg-red-100 text-red-700",
-    pending: "bg-amber-100 text-amber-700",
+    filled: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
+    open: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400",
+    cancelled: "bg-gray-100 text-gray-500 dark:bg-gray-500/15 dark:text-gray-400",
+    failed: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400",
+    pending: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
   };
   return (
     <span
-      className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${colors[status.toLowerCase()] ?? "bg-gray-100 text-gray-500"}`}
+      className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${colors[status.toLowerCase()] ?? "bg-gray-100 text-gray-500 dark:bg-gray-500/15 dark:text-gray-400"}`}
     >
       {status}
     </span>
@@ -1038,9 +1018,9 @@ function StatusBadge({ status }: { status: string }) {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className="mt-1 text-base font-semibold text-gray-900">{value}</p>
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-gray-100">{value}</p>
     </div>
   );
 }

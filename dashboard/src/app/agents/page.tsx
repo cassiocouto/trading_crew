@@ -24,14 +24,14 @@ export default function AgentsPage() {
       <h1 className="text-xl font-bold">Advisory Crew</h1>
 
       {/* Advisory crew status card */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-3 mb-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
-            <Shield className="h-5 w-5 text-purple-700" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-500/15">
+            <Shield className="h-5 w-5 text-purple-700 dark:text-purple-400" />
           </div>
           <div>
-            <h2 className="font-semibold text-gray-800">Advisory Crew</h2>
-            <p className="text-xs text-gray-500">
+            <h2 className="font-semibold text-gray-800 dark:text-gray-200">Advisory Crew</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               Multi-agent advisory that activates when uncertainty exceeds the threshold
             </p>
           </div>
@@ -44,33 +44,33 @@ export default function AgentsPage() {
 
         {status.data && (
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4 text-sm">
-            <div className="rounded-lg bg-gray-50 p-3">
-              <dt className="text-xs text-gray-500 uppercase tracking-wide">Status</dt>
+            <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
+              <dt className="text-xs text-gray-500 uppercase tracking-wide dark:text-gray-400">Status</dt>
               <dd className="mt-1 font-semibold">
                 {status.data.advisory_enabled ? (
-                  <span className="text-green-700">Enabled</span>
+                  <span className="text-green-700 dark:text-green-400">Enabled</span>
                 ) : (
-                  <span className="text-gray-500">Disabled</span>
+                  <span className="text-gray-500 dark:text-gray-400">Disabled</span>
                 )}
               </dd>
             </div>
-            <div className="rounded-lg bg-gray-50 p-3">
-              <dt className="text-xs text-gray-500 uppercase tracking-wide">Activation Threshold</dt>
+            <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
+              <dt className="text-xs text-gray-500 uppercase tracking-wide dark:text-gray-400">Activation Threshold</dt>
               <dd className="mt-1 font-semibold">{status.data.advisory_activation_threshold.toFixed(2)}</dd>
             </div>
-            <div className="rounded-lg bg-gray-50 p-3">
-              <dt className="text-xs text-gray-500 uppercase tracking-wide">Activations Today</dt>
+            <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
+              <dt className="text-xs text-gray-500 uppercase tracking-wide dark:text-gray-400">Activations Today</dt>
               <dd className="mt-1 font-semibold">{activationsToday}</dd>
             </div>
-            <div className="rounded-lg bg-gray-50 p-3">
-              <dt className="text-xs text-gray-500 uppercase tracking-wide">Total Cycles</dt>
+            <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
+              <dt className="text-xs text-gray-500 uppercase tracking-wide dark:text-gray-400">Total Cycles</dt>
               <dd className="mt-1 font-semibold">{status.data.total_cycles}</dd>
             </div>
           </dl>
         )}
         {latestCycle.data && (
-          <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+          <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
               Latest Cycle #{latestCycle.data.cycle_number}
             </p>
             <UncertaintyScoreBadge
@@ -84,21 +84,21 @@ export default function AgentsPage() {
 
       {/* Agent roster */}
       {agents.data && agents.data.length > 0 && (
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-3 font-semibold text-gray-800">Crew Members</h2>
-          <div className="divide-y">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          <h2 className="mb-3 font-semibold text-gray-800 dark:text-gray-200">Crew Members</h2>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
             {agents.data.map((a) => (
               <div key={a.name} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
                 <div>
-                  <p className="font-medium text-gray-800">{a.name}</p>
-                  <p className="text-xs text-gray-500">{a.role}</p>
+                  <p className="font-medium text-gray-800 dark:text-gray-200">{a.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{a.role}</p>
                 </div>
-                <div className="flex items-center gap-4 text-sm text-gray-600">
+                <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
                   <div className="flex items-center gap-1">
-                    <Activity className="h-3.5 w-3.5 text-purple-500" />
+                    <Activity className="h-3.5 w-3.5 text-purple-500 dark:text-purple-400" />
                     <span>{a.advisory_activations_today} today</span>
                   </div>
-                  <div className="flex items-center gap-1 text-xs text-gray-400">
+                  <div className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
                     <Clock className="h-3.5 w-3.5" />
                     <span suppressHydrationWarning>
                       {a.last_run_at ? new Date(a.last_run_at).toLocaleString() : "Never"}
@@ -113,17 +113,17 @@ export default function AgentsPage() {
       )}
 
       {/* Recent advisory activations */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-3 font-semibold text-gray-800">Recent Advisory Activations</h2>
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+        <h2 className="mb-3 font-semibold text-gray-800 dark:text-gray-200">Recent Advisory Activations</h2>
         {cycles.isLoading ? (
-          <p className="text-sm text-gray-400">Loading…</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">Loading…</p>
         ) : advisoryActivations.length === 0 ? (
-          <p className="text-sm text-gray-400 italic">No advisory activations recorded yet.</p>
+          <p className="text-sm text-gray-400 italic dark:text-gray-500">No advisory activations recorded yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs font-medium uppercase text-gray-500">
+                <tr className="border-b border-gray-200 text-left text-xs font-medium uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="py-2 pr-2 w-4" />
                   <th className="py-2 pr-4">Cycle</th>
                   <th className="py-2 pr-4">Time</th>
@@ -143,7 +143,7 @@ export default function AgentsPage() {
         )}
       </div>
 
-      <p className="text-xs text-gray-400 max-w-prose">
+      <p className="text-xs text-gray-400 max-w-prose dark:text-gray-500">
         The advisory crew activates automatically when the uncertainty score exceeds the
         configured threshold. Advisory adjustments are applied to signals before execution.
         Click any row to read the crew&apos;s reasoning.
@@ -179,10 +179,10 @@ function AdvisoryActivationRow({
   return (
     <>
       <tr
-        className={`border-b last:border-0 ${expandable ? "cursor-pointer hover:bg-gray-50" : ""}`}
+        className={`border-b border-gray-100 last:border-0 dark:border-gray-800 ${expandable ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800" : ""}`}
         onClick={expandable ? () => setExpanded((v) => !v) : undefined}
       >
-        <td className="py-2 pr-2 text-gray-400">
+        <td className="py-2 pr-2 text-gray-400 dark:text-gray-500">
           {expandable && (
             expanded
               ? <ChevronDown size={14} />
@@ -190,59 +190,59 @@ function AdvisoryActivationRow({
           )}
         </td>
         <td className="py-2 pr-4 font-medium">#{c.cycle_number}</td>
-        <td className="py-2 pr-4 text-xs text-gray-500" suppressHydrationWarning>
+        <td className="py-2 pr-4 text-xs text-gray-500 dark:text-gray-400" suppressHydrationWarning>
           {new Date(c.timestamp).toLocaleString()}
         </td>
         <td className="py-2 pr-4">
           <span
             className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
               c.uncertainty_score >= threshold
-                ? "bg-red-100 text-red-800"
+                ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400"
                 : c.uncertainty_score >= threshold * 0.6
-                  ? "bg-yellow-100 text-yellow-800"
-                  : "bg-green-100 text-green-800"
+                  ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-400"
+                  : "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-400"
             }`}
           >
             {c.uncertainty_score.toFixed(2)}
           </span>
         </td>
         <td className="py-2 pr-4">{c.num_signals}</td>
-        <td className={`py-2 pr-4 font-medium ${c.realized_pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
+        <td className={`py-2 pr-4 font-medium ${c.realized_pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
           {c.realized_pnl >= 0 ? "+" : ""}${c.realized_pnl.toFixed(2)}
         </td>
         <td className="py-2">
           {hasAdjustments ? (
-            <span className="text-purple-600">✓ {adjustments.length} applied</span>
+            <span className="text-purple-600 dark:text-purple-400">✓ {adjustments.length} applied</span>
           ) : (
-            <span className="text-gray-400">approved</span>
+            <span className="text-gray-400 dark:text-gray-500">approved</span>
           )}
         </td>
       </tr>
 
       {expanded && expandable && (
-        <tr className="border-b bg-purple-50 last:border-0">
+        <tr className="border-b border-gray-100 bg-purple-50 last:border-0 dark:border-gray-800 dark:bg-purple-900/10">
           <td colSpan={7} className="px-4 py-3">
             {hasSummary && (
               <div className="mb-2">
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-purple-700">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-400">
                   Crew reasoning
                 </p>
-                <p className="whitespace-pre-wrap text-xs text-gray-700">{c.advisory_summary}</p>
+                <p className="whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">{c.advisory_summary}</p>
               </div>
             )}
             {hasAdjustments && (
               <div>
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-purple-700">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-400">
                   Adjustments
                 </p>
                 <ul className="space-y-1">
                   {(adjustments as Array<{action?: string; symbol?: string; reason?: string; params?: Record<string, number>}>).map((adj, i) => (
-                    <li key={i} className="text-xs text-gray-700">
-                      <span className="font-medium text-purple-700">{adj.action}</span>
-                      {adj.symbol && <span className="ml-1 text-gray-500">({adj.symbol})</span>}
+                    <li key={i} className="text-xs text-gray-700 dark:text-gray-300">
+                      <span className="font-medium text-purple-700 dark:text-purple-400">{adj.action}</span>
+                      {adj.symbol && <span className="ml-1 text-gray-500 dark:text-gray-400">({adj.symbol})</span>}
                       {adj.reason && <span className="ml-1">— {adj.reason}</span>}
                       {adj.params && Object.keys(adj.params).length > 0 && (
-                        <span className="ml-1 text-gray-400">
+                        <span className="ml-1 text-gray-400 dark:text-gray-500">
                           [{Object.entries(adj.params).map(([k, v]) => `${k}: ${v}`).join(", ")}]
                         </span>
                       )}

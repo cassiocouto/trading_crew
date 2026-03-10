@@ -448,6 +448,10 @@ make docker-up
 | **Backtest** | Run a backtest over stored historical data directly from the browser |
 | **Settings** | View and edit all non-secret settings via a web form; saves to `settings.yaml` |
 
+### Dark mode
+
+The dashboard supports Light, Dark, and System themes. Click the theme toggle at the bottom of the sidebar to cycle between modes. Your preference is saved in the browser and persists across sessions. When set to System, the dashboard follows your operating system's light/dark preference automatically.
+
 ### Live updates
 
 The dashboard updates via WebSocket and timed polling. New signals, filled orders, and completed cycles appear within seconds via WebSocket events. On the Markets page, the ticker refreshes every 15 s, signals and orders every 30 s, and the candle chart every 60 s. A live indicator in the Markets page header shows elapsed time since last fetch and pulses while a background refresh is in progress.

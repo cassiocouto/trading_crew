@@ -38,16 +38,16 @@ export default function ControlsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-gray-900">Controls</h1>
-        <p className="mt-0.5 text-sm text-gray-500">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Controls</h1>
+        <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
           Toggle execution and advisory agents. Changes take effect on the next trading cycle.
         </p>
       </div>
 
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="h-44 animate-pulse rounded-xl bg-gray-100" />
-          <div className="h-44 animate-pulse rounded-xl bg-gray-100" />
+          <div className="h-44 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+          <div className="h-44 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -96,12 +96,12 @@ export default function ControlsPage() {
       {/* Confirm pause dialog */}
       {confirmPauseExecution && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900">
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 shrink-0 text-amber-500" size={20} />
               <div>
-                <h2 className="font-semibold text-gray-900">Pause execution?</h2>
-                <p className="mt-1 text-sm text-gray-500">
+                <h2 className="font-semibold text-gray-900 dark:text-gray-100">Pause execution?</h2>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   The bot will continue running market analysis and generating signals, but{" "}
                   <strong>no orders will be placed</strong> until execution is unpaused.
                 </p>
@@ -110,7 +110,7 @@ export default function ControlsPage() {
             <div className="mt-5 flex justify-end gap-3">
               <button
                 onClick={() => setConfirmPauseExecution(false)}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 Cancel
               </button>
@@ -156,26 +156,25 @@ function ControlCard({
 
   return (
     <div
-      className={`rounded-xl border bg-white p-5 shadow-sm transition-colors ${
+      className={`rounded-xl border bg-white p-5 shadow-sm transition-colors dark:bg-gray-900 ${
         !available ? "opacity-60" : ""
-      } ${paused ? "border-amber-200" : "border-gray-200"}`}
+      } ${paused ? "border-amber-200 dark:border-amber-800" : "border-gray-200 dark:border-gray-700"}`}
     >
       <div className="flex items-start justify-between gap-4">
         <div
           className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${
-            isRunning && available ? "bg-indigo-50 text-indigo-600" : "bg-gray-100 text-gray-400"
+            isRunning && available ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400" : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500"
           }`}
         >
           {icon}
         </div>
 
-        {/* Read-only status badge — use the Pause/Resume button below to toggle */}
         <span
           title={unavailableReason ?? undefined}
           className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium select-none ${
             isRunning && available
-              ? "bg-green-100 text-green-700"
-              : "bg-amber-100 text-amber-700"
+              ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400"
+              : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
           }`}
         >
           <span
@@ -187,14 +186,14 @@ function ControlCard({
         </span>
       </div>
 
-      <h3 className="mt-4 flex items-center font-semibold text-gray-900">
+      <h3 className="mt-4 flex items-center font-semibold text-gray-900 dark:text-gray-100">
         {title}
         {helpText && <HelpTooltip text={helpText} />}
       </h3>
-      <p className="mt-1 text-sm text-gray-500">{description}</p>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{description}</p>
 
       {unavailableReason && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-700">
+        <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
           {unavailableReason}
         </div>
@@ -206,8 +205,8 @@ function ControlCard({
           disabled={pending}
           className={`mt-4 w-full rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
             paused
-              ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
-              : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+              ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/30"
+              : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400 dark:hover:bg-amber-900/30"
           }`}
         >
           {paused ? (
