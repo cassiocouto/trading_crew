@@ -899,13 +899,28 @@ function SidebarPanel({
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-      <button
+      {/* Use a div instead of button so HelpTooltip's <button> is not nested
+          inside another <button> (invalid HTML / hydration error). */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left"
       >
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-gray-700">{title}</span>
-          {helpText && <HelpTooltip text={helpText} />}
+          {helpText && (
+            // Stop propagation so clicking ? doesn't also toggle the panel
+            <span onClick={(e) => e.stopPropagation()}>
+              <HelpTooltip text={helpText} />
+            </span>
+          )}
           {badge}
         </div>
         <svg
@@ -917,7 +932,7 @@ function SidebarPanel({
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
-      </button>
+      </div>
       {open && <div className="border-t border-gray-100 px-4 py-3">{children}</div>}
     </div>
   );
