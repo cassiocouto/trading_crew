@@ -610,10 +610,10 @@ class TestWebSocket:
             # calling the internal poll helper directly in this synchronous test.
             from trading_crew.api.websocket import _get_initial_watermarks, _poll_and_emit
 
-            old_wm, ow, sw = _get_initial_watermarks(db_service)
+            old_wm, ow, sw, tw = _get_initial_watermarks(db_service)
             # Advance old_wm to be below the newly inserted cycle
             old_wm -= 1  # force detection
-            events, _, _, _ = _poll_and_emit(db_service, old_wm, ow, sw)
+            events, _, _, _, _ = _poll_and_emit(db_service, old_wm, ow, sw, tw)
             # At minimum a cycle_complete event should be produced.
             assert any(e.type == "cycle_complete" for e in events)
 
@@ -644,7 +644,7 @@ class TestWebSocket:
         finally:
             session.close()
 
-        events, _, _, _ = _poll_and_emit(db_service, 0, 0, 0)
+        events, _, _, _, _ = _poll_and_emit(db_service, 0, 0, 0, 0)
         event_types = [e.type for e in events]
         assert "circuit_breaker" in event_types
 
@@ -679,6 +679,6 @@ class TestWebSocket:
         from trading_crew.api.websocket import _poll_and_emit
 
         # Running poll with watermark=0 should process the new filled order
-        events, _new_c, new_o, _new_s = _poll_and_emit(db_service, 1000, 0, 1000)
+        events, _new_c, new_o, _new_s, _new_t = _poll_and_emit(db_service, 1000, 0, 1000, 0)
         assert new_o > 0  # watermark advanced past the newly inserted order
         assert any(e.type == "order_filled" for e in events)

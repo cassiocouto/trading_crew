@@ -16,6 +16,10 @@
 
 ## What is Trading Crew?
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Trading Crew dashboard demo" width="800" />
+</p>
+
 Trading Crew is an open-source crypto trading system that runs a fully
 deterministic pipeline — fetching market data, computing indicators, generating
 signals, and managing risk — without any LLM involvement. When market conditions
@@ -44,12 +48,6 @@ tightening stop-losses.
   real capital (see [Backtesting](#backtesting))
 - **Real-time Dashboard** — FastAPI + Next.js web UI with WebSocket live updates
   for monitoring portfolio, orders, signals, and agent status (see [Dashboard](#dashboard))
-
-### Demo
-
-<p align="center">
-  <img src="docs/demo.gif" alt="Trading Crew dashboard demo" width="800" />
-</p>
 
 ## Quick Start
 
