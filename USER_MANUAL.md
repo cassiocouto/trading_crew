@@ -439,7 +439,8 @@ make docker-up
 | Page | What you'll see |
 |------|----------------|
 | **Overview** | Current balance, total P&L, open positions, last cycle summary, circuit breaker status, agent activity grid |
-| **Markets** | Candlestick chart (volume toggleable via checkbox) per tracked symbol; 15M/1H/4H/1D timeframe selector; right-hand sidebar with five collapsible panels — **Cycle & Strategies** (current cycle number + per-strategy buy/sell signal counts), **Latest Signals** (most recent signals with confidence, risk verdict, and full strategy reasoning — click to expand), **Volatility** (ATR(14), ATR%, 20-bar price range), **Orders**, and **Failed Orders** — all scoped to the selected symbol and auto-refreshing. |
+| **Markets** | Candlestick chart (volume toggleable via checkbox) per tracked symbol; 15M/1H/4H/1D timeframe selector; a symbol-scoped P&L bar showing unrealized, realized, and fee totals for the selected symbol; right-hand sidebar with five collapsible panels — **Cycle & Strategies** (current cycle number + per-strategy buy/sell signal counts), **Latest Signals** (most recent signals with confidence, risk verdict, and full strategy reasoning — click to expand), **Volatility** (ATR(14), ATR%, 20-bar price range), **Orders**, and **Failed Orders** — all scoped to the selected symbol and auto-refreshing. |
+| **P&L** | Dedicated profit-and-loss page with five sections: **Summary Cards** (total balance, unrealized P&L, realized P&L, fees, max drawdown), **Equity Curve** (tabbed chart with Balance, P&L Breakdown, and Drawdown views), **Open Positions** (current holdings with entry price and unrealized gain/loss), **Trade Stats** (total trades, win rate, profit factor, average hold time), and **Trade Journal** (sortable table of all closed trades with entry/exit prices, P&L, fees, and hold duration). Closed trades are reconstructed from filled orders via FIFO lot-matching — no manual input needed. |
 | **Orders** | All orders with status filters (open, filled, cancelled, failed). Per-position P&L cards. |
 | **Signals** | Live signal feed with strategy tags, signal direction (BUY/SELL), and confidence bars |
 | **History** | Equity curve chart, strategy breakdown table (signals generated vs. orders filled), cycle history log |
@@ -481,6 +482,24 @@ DASHBOARD_API_KEY=your-secret-key
 ```
 
 The frontend sends the key automatically; external tools must include the `X-API-Key` header.
+
+### P&L tracking
+
+The **P&L** page gives you a single place to understand how your portfolio is performing. No manual trade logging is required — the system automatically reconstructs closed trades by matching your filled BUY and SELL orders using a FIFO (first-in, first-out) lot queue.
+
+**Summary cards** at the top show headline numbers: total balance (cash + open positions at market value), unrealized P&L (gain or loss on positions still open), realized P&L (gain or loss on closed trades), cumulative fees, and maximum drawdown percentage.
+
+**The equity curve** has three tabs:
+
+- **Balance** — total portfolio value over time (cash + market value of open positions)
+- **P&L Breakdown** — realized and unrealized P&L plotted together, so you can see how much of your return is from closed trades vs. open positions
+- **Drawdown** — peak-to-trough drawdown percentage; useful for assessing worst-case periods
+
+**Trade stats** summarize your closed-trade performance: total trades, win rate, profit factor (gross profit / gross loss), average P&L per trade, and average hold time.
+
+**The trade journal** is a sortable table of every closed trade. Each row shows the symbol, strategy that opened the position, entry and exit prices, amount, net P&L (after fees), percentage return, fees paid, hold duration, and open/close timestamps. Click any column header to sort.
+
+The **Markets page** also shows a compact P&L bar for the currently selected symbol, displaying its unrealized P&L, realized P&L, and fees at a glance — useful for quick context without leaving the chart.
 
 ---
 

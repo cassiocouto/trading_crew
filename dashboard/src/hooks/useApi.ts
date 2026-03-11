@@ -12,6 +12,20 @@ export const usePortfolio = () =>
 export const usePnlHistory = (limit = 100) =>
   useQuery({ queryKey: ["pnl-history", limit], queryFn: () => api.getPnlHistory(limit), staleTime: STALE });
 
+export const useClosedTrades = (limit = 200, symbol?: string) =>
+  useQuery({
+    queryKey: ["closed-trades", limit, symbol],
+    queryFn: () => api.getClosedTrades(limit, symbol),
+    staleTime: STALE,
+  });
+
+export const useTradeStats = (symbol?: string) =>
+  useQuery({
+    queryKey: ["trade-stats", symbol],
+    queryFn: () => api.getTradeStats(symbol),
+    staleTime: STALE,
+  });
+
 export const useOrders = (limit = 50, status?: string, symbol?: string, refetchInterval?: number) =>
   useQuery({
     queryKey: ["orders", limit, status, symbol],

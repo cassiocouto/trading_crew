@@ -78,6 +78,7 @@ def _make_settings(**overrides):
     s.stop_loss_monitoring_enabled = False
     s.symbols = [SYMBOL]
     s.default_timeframe = "1h"
+    s.chart_extra_timeframes = ["15m"]
     s.market_data_candle_limit = 60
     s.stale_order_cancel_minutes = 10
     s.stale_partial_fill_cancel_minutes = 360

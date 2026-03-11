@@ -291,6 +291,122 @@ class TestPortfolioEndpoints:
         assert r.status_code == 200
         assert "num_positions" in r.json()
 
+    def test_portfolio_includes_total_balance_and_unrealized(
+        self, client: TestClient, seeded: None
+    ) -> None:
+        r = client.get("/api/portfolio/")
+        assert r.status_code == 200
+        data = r.json()
+        assert "total_balance_quote" in data
+        assert "unrealized_pnl" in data
+        assert data["total_balance_quote"] is not None
+        assert data["unrealized_pnl"] is not None
+        # BTC/USDT: entry=60000, current=65000, amount=0.1 → unrealized = 500
+        assert data["unrealized_pnl"] == 500.0
+        # total = balance_quote + market_value = 11500 + 65000*0.1 = 18000
+        assert data["total_balance_quote"] == 18000.0
+
+    def test_closed_trades_returns_list(self, client: TestClient, seeded: None) -> None:
+        r = client.get("/api/portfolio/trades", params={"limit": 50})
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_closed_trades_with_symbol_filter(self, client: TestClient, seeded: None) -> None:
+        r = client.get("/api/portfolio/trades", params={"limit": 50, "symbol": "BTC/USDT"})
+        assert r.status_code == 200
+        trades = r.json()
+        for t in trades:
+            assert t["symbol"] == "BTC/USDT"
+
+    def test_trade_stats_returns_valid_schema(self, client: TestClient, seeded: None) -> None:
+        r = client.get("/api/portfolio/trade-stats")
+        assert r.status_code == 200
+        data = r.json()
+        assert "total_trades" in data
+        assert "win_rate" in data
+        assert "profit_factor" in data
+        assert "avg_hold_hours" in data
+
+
+# ---------------------------------------------------------------------------
+# TestFIFOTradeMatching — verifies the round-trip trade pairing logic
+# ---------------------------------------------------------------------------
+
+
+class TestFIFOTradeMatching:
+    """Insert a buy + sell pair and verify the FIFO lot-matching produces a trade."""
+
+    def test_buy_sell_pair_produces_one_trade(
+        self, client: TestClient, db_service: DatabaseService, seeded: None
+    ) -> None:
+        from sqlalchemy.orm import Session
+
+        session: Session = sessionmaker(bind=db_service._engine)()
+        try:
+            buy_time = datetime(2024, 7, 1, 12, 0, tzinfo=UTC)
+            sell_time = datetime(2024, 7, 2, 12, 0, tzinfo=UTC)
+            session.add(
+                OrderRecord(
+                    exchange_order_id="FIFO-BUY-1",
+                    symbol="ETH/USDT",
+                    exchange="binance",
+                    side="buy",
+                    order_type="market",
+                    status="filled",
+                    requested_amount=1.0,
+                    filled_amount=1.0,
+                    average_fill_price=3_000.0,
+                    total_fee=3.0,
+                    strategy_name="ema_crossover",
+                    signal_confidence=0.8,
+                    created_at=buy_time,
+                    updated_at=buy_time,
+                )
+            )
+            session.add(
+                OrderRecord(
+                    exchange_order_id="FIFO-SELL-1",
+                    symbol="ETH/USDT",
+                    exchange="binance",
+                    side="sell",
+                    order_type="market",
+                    status="filled",
+                    requested_amount=1.0,
+                    filled_amount=1.0,
+                    average_fill_price=3_200.0,
+                    total_fee=3.2,
+                    strategy_name="ema_crossover",
+                    signal_confidence=0.9,
+                    created_at=sell_time,
+                    updated_at=sell_time,
+                )
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        r = client.get("/api/portfolio/trades", params={"symbol": "ETH/USDT"})
+        assert r.status_code == 200
+        trades = r.json()
+        assert len(trades) >= 1
+        trade = trades[0]
+        assert trade["symbol"] == "ETH/USDT"
+        assert trade["entry_price"] == 3_000.0
+        assert trade["exit_price"] == 3_200.0
+        assert trade["amount"] == 1.0
+        assert trade["pnl"] > 0
+        assert trade["hold_duration_hours"] == 24.0
+
+    def test_trade_stats_after_trades(
+        self, client: TestClient, db_service: DatabaseService, seeded: None
+    ) -> None:
+        r = client.get("/api/portfolio/trade-stats", params={"symbol": "ETH/USDT"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total_trades"] >= 1
+        assert data["winning_trades"] >= 1
+        assert data["win_rate"] > 0
+
 
 # ---------------------------------------------------------------------------
 # TestOrderEndpoints

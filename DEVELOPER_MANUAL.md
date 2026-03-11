@@ -130,12 +130,15 @@ trading_crew/
 │   └── backtest/              Backtest regression tests
 ├── scripts/
 │   ├── backtest_runner.py     CLI entry point for backtesting
-│   └── dashboard.py           Entry point for FastAPI server
+│   ├── dashboard.py           Entry point for FastAPI server
+│   ├── stop_all.py            Kill lingering dev processes (ports 8000/3000) + remove lock files
+│   └── capture_demo/          Playwright GIF capture (capture.py + README.md)
 ├── dashboard/                 Next.js frontend
 │   └── src/
 │       ├── app/               Page routes (Next.js App Router)
 │       │   ├── page.tsx           Overview
-│       │   ├── markets/page.tsx   Candlestick chart + ticker
+│       │   ├── markets/page.tsx   Candlestick chart + ticker + symbol P&L bar
+│       │   ├── pnl/page.tsx       Dedicated P&L page
 │       │   ├── orders/page.tsx
 │       │   ├── signals/page.tsx
 │       │   ├── history/page.tsx
@@ -145,6 +148,10 @@ trading_crew/
 │       │   └── backtest/page.tsx
 │       ├── components/
 │       │   ├── CandlestickChart.tsx  lightweight-charts v5 wrapper
+│       │   ├── PnLSummaryCards.tsx   5-metric summary cards (balance, unrealized, realized, fees, drawdown)
+│       │   ├── RichEquityCurve.tsx   Tabbed equity curve (Balance / P&L Breakdown / Drawdown)
+│       │   ├── ClosedTradesTable.tsx Sortable closed-trades journal
+│       │   ├── TradeStatsBar.tsx     Aggregate trade statistics bar
 │       │   ├── ThemeToggle.tsx       Light/Dark/System theme toggle
 │       │   └── Providers.tsx         React Query + next-themes providers
 │       ├── hooks/             React Query hooks + useWebSocket
@@ -201,6 +208,16 @@ Or run all at once:
 ```bash
 make format; make lint; make type-check; make test
 ```
+
+### Stopping lingering dev processes
+
+When switching between dashboard sessions or if `make start` fails with "address already in use" or a Next.js lock-file error, run:
+
+```bash
+make stop
+```
+
+This executes `scripts/stop_all.py`, which kills any process listening on ports 8000 (API) or 3000 (UI) and removes `dashboard/.next/dev/lock`. Works on both Windows and Unix.
 
 ---
 
@@ -694,15 +711,54 @@ The WebSocket poller in `api/websocket.py` emits events by comparing the current
 
 ### Symbol filtering on read endpoints
 
-Three endpoints accept an optional `?symbol=` query parameter to scope results to a single trading pair:
+Five endpoints accept an optional `?symbol=` query parameter to scope results to a single trading pair:
 
 | Endpoint | Symbol param | Notes |
 |----------|-------------|-------|
 | `GET /api/orders/` | `?symbol=BTC%2FUSDT` | Combined with optional `?status=` filter |
 | `GET /api/orders/failed` | `?symbol=BTC%2FUSDT` | Combined with `?unresolved_only=` flag |
 | `GET /api/signals/` | `?symbol=BTC%2FUSDT` | Combined with optional `?strategy=` filter |
+| `GET /api/portfolio/trades` | `?symbol=BTC%2FUSDT` | Closed trades via FIFO lot-matching; also accepts `?limit=` |
+| `GET /api/portfolio/trade-stats` | `?symbol=BTC%2FUSDT` | Aggregate metrics from closed trades |
 
-All three are backward-compatible — omitting `symbol` returns all symbols as before. The Markets page sidebar uses this to fetch per-symbol orders and signals without a frontend-side filter.
+All five are backward-compatible — omitting `symbol` returns data across all symbols. The Markets page sidebar and P&L bar use the symbol filter; the dedicated P&L page fetches without a symbol to get the full picture.
+
+### P&L and trade-matching endpoints
+
+The portfolio router (`api/routers/portfolio.py`) provides three P&L-related endpoints:
+
+| Endpoint | Response schema | Description |
+|----------|----------------|-------------|
+| `GET /api/portfolio/` | `PortfolioResponse` | Enriched with `total_balance_quote` (cash + market value) and `unrealized_pnl` |
+| `GET /api/portfolio/trades` | `list[ClosedTradeResponse]` | Closed trades via FIFO lot-matching of filled `OrderRecord`s |
+| `GET /api/portfolio/trade-stats` | `TradeStatsResponse` | Aggregate stats: total trades, win rate, profit factor, avg hold |
+
+#### FIFO lot-matching algorithm
+
+Closed trades are not stored in a separate table — they are computed on-the-fly from filled orders by `_build_closed_trades()` in `api/routers/portfolio.py`. The algorithm:
+
+1. Queries all filled `OrderRecord`s ordered by `created_at`, optionally filtered by symbol
+2. Extracts each row into a lightweight `_OrderTuple` dataclass **within** the SQLAlchemy session (avoids `DetachedInstanceError`)
+3. Skips orders with zero `filled_amount` or zero `average_fill_price`
+4. BUY orders are pushed onto a per-symbol FIFO queue as `_BuyLot` instances
+5. SELL orders consume lots from the front of the queue:
+   - Each SELL may match against one or more buy lots (partial fills supported)
+   - Fee allocation is proportional: `lot.fee × (matched / lot.amount)` for the entry side
+   - A `ClosedTradeResponse` is emitted for each matched portion
+6. Results are sorted by `closed_at` descending and truncated to the requested `limit`
+
+This is the same core algorithm used by `SimulationRunner._build_trades()` in backtesting, adapted for the API context.
+
+#### Frontend data flow
+
+```
+usePortfolio()        → GET /api/portfolio/         → PnLSummaryCards (balance, unrealized)
+usePnlHistory(200)    → GET /api/portfolio/history   → RichEquityCurve (equity, P&L breakdown, drawdown)
+useClosedTrades(200)  → GET /api/portfolio/trades    → ClosedTradesTable
+useTradeStats()       → GET /api/portfolio/trade-stats → TradeStatsBar
+```
+
+The Markets page uses `usePortfolio()` and `useClosedTrades(1000, selectedSymbol)` to populate the symbol-scoped P&L bar.
 
 ### Routers that write outside the database
 
@@ -1144,6 +1200,8 @@ git push origin v0.9.0
 | Add a risk check | `risk/` → implement check, wire it into `services/risk_pipeline.py` |
 | Add a custom sell guard | `risk/sell_guard.py` → subclass `SellGuard`, implement `evaluate()`, pass to `RiskPipeline(sell_guard=...)` in `main.py` |
 | Add a new API endpoint | `api/routers/` → add router, register in `api/app.py` |
+| Add a P&L metric card | `PnLSummaryCards.tsx` → add a `<Card>` entry; data comes from `PortfolioResponse` or `PnLPointResponse` |
+| Add a closed-trade column | `ClosedTradesTable.tsx` → add column to header + body rows; extend `ClosedTradeResponse` schema if needed |
 | Add a WebSocket event | `api/websocket.py` + `api/schemas.py` + `useWebSocket.ts` frontend handler |
 | Add a new database table | `db/models.py` → define ORM model, `make db-migrate msg="..."` |
 | Add a new notification channel | `services/notification_service.py` → add backend, call in relevant hooks |

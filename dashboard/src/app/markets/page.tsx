@@ -13,6 +13,8 @@ import {
   useLatestCycle,
   useStrategyStats,
   useSystemStatus,
+  usePortfolio,
+  useClosedTrades,
 } from "@/hooks/useApi";
 import {
   emaAligned,
@@ -299,8 +301,19 @@ export default function MarketsPage() {
   const { data: latestCycle } = useLatestCycle(REFRESH_TICKER_MS);
   const { data: strategyStats } = useStrategyStats(REFRESH_CHART_MS);
   const { data: systemStatus } = useSystemStatus();
+  const { data: portfolioData } = usePortfolio();
+  const { data: symbolTrades } = useClosedTrades(1000, selectedSymbol || undefined);
 
   const activeSymbolData = symbols?.find((s) => s.symbol === selectedSymbol);
+
+  const symbolPosition = selectedSymbol && portfolioData?.positions?.[selectedSymbol];
+  const symbolUnrealized = symbolPosition
+    ? symbolPosition.current_price != null
+      ? (symbolPosition.current_price - symbolPosition.entry_price) * symbolPosition.amount
+      : null
+    : null;
+  const symbolRealized = symbolTrades?.reduce((sum, t) => sum + t.pnl, 0) ?? null;
+  const symbolFees = symbolTrades?.reduce((sum, t) => sum + t.fee, 0) ?? null;
 
   const activeStrategies = signals
     ? [...new Set(signals.map((s) => s.strategy_name))]
@@ -421,6 +434,35 @@ export default function MarketsPage() {
                 : "—"
             }
           />
+        </div>
+      )}
+
+      {/* Symbol-scoped P&L bar */}
+      {selectedSymbol && (
+        <div className="flex items-center gap-6 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm dark:border-gray-700 dark:bg-gray-900">
+          <span className="font-medium text-gray-700 dark:text-gray-300">{selectedSymbol}</span>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Unrealized </span>
+            {symbolPosition ? (
+              <span className={`font-medium tabular-nums ${symbolUnrealized != null && symbolUnrealized >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                {symbolUnrealized != null ? `${symbolUnrealized >= 0 ? "+" : ""}$${Math.abs(symbolUnrealized).toFixed(2)}` : "—"}
+              </span>
+            ) : (
+              <span className="text-gray-400 dark:text-gray-500">No position</span>
+            )}
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Realized </span>
+            <span className={`font-medium tabular-nums ${symbolRealized != null && symbolRealized >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+              {symbolRealized != null ? `${symbolRealized >= 0 ? "+" : ""}$${Math.abs(symbolRealized).toFixed(2)}` : "—"}
+            </span>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Fees </span>
+            <span className="tabular-nums text-gray-600 dark:text-gray-300">
+              {symbolFees != null ? `$${symbolFees.toFixed(2)}` : "—"}
+            </span>
+          </div>
         </div>
       )}
 

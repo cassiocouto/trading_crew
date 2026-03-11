@@ -3,6 +3,7 @@
 import type {
   AgentStatusResponse,
   BacktestResultResponse,
+  ClosedTradeResponse,
   ControlsResponse,
   ControlsUpdate,
   CycleResponse,
@@ -17,6 +18,7 @@ import type {
   StrategyStatsResponse,
   SymbolTickerResponse,
   SystemStatusResponse,
+  TradeStatsResponse,
 } from "@/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -73,6 +75,16 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 export const api = {
   getPortfolio: () => get<PortfolioResponse>("/api/portfolio/"),
   getPnlHistory: (limit = 100) => get<PnLPointResponse[]>("/api/portfolio/history", { limit }),
+  getClosedTrades: (limit = 200, symbol?: string) => {
+    const params: Record<string, string | number> = { limit };
+    if (symbol) params.symbol = symbol;
+    return get<ClosedTradeResponse[]>("/api/portfolio/trades", params);
+  },
+  getTradeStats: (symbol?: string) => {
+    const params: Record<string, string> = {};
+    if (symbol) params.symbol = symbol;
+    return get<TradeStatsResponse>("/api/portfolio/trade-stats", params);
+  },
 
   getOrders: (limit = 50, status?: string, symbol?: string) => {
     const params: Record<string, string | number | boolean> = { limit };

@@ -17,6 +17,33 @@ export interface PortfolioResponse {
   num_positions: number;
   positions: Record<string, PositionResponse>;
   timestamp: string | null;
+  total_balance_quote: number | null;
+  unrealized_pnl: number | null;
+}
+
+export interface ClosedTradeResponse {
+  symbol: string;
+  strategy_name: string;
+  entry_price: number;
+  exit_price: number;
+  amount: number;
+  pnl: number;
+  pnl_pct: number;
+  fee: number;
+  opened_at: string;
+  closed_at: string;
+  hold_duration_hours: number;
+}
+
+export interface TradeStatsResponse {
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  avg_pnl: number;
+  total_pnl: number;
+  profit_factor: number;
+  avg_hold_hours: number;
 }
 
 export interface PnLPointResponse {

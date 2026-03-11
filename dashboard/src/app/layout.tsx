@@ -10,6 +10,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  TrendingUp,
   Zap,
 } from "lucide-react";
 import "./globals.css";
@@ -29,6 +30,7 @@ const NAV = [
   { href: "/orders", label: "Orders", icon: BookOpen },
   { href: "/signals", label: "Signals", icon: Zap },
   { href: "/history", label: "History", icon: History },
+  { href: "/pnl", label: "P&L", icon: TrendingUp },
   { href: "/agents", label: "Agents", icon: ShieldCheck },
   { href: "/controls", label: "Controls", icon: SlidersHorizontal },
   { href: "/backtest", label: "Backtest", icon: BarChart2 },

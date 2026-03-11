@@ -33,6 +33,8 @@ class PortfolioResponse(BaseModel):
     num_positions: int
     positions: dict[str, PositionResponse]
     timestamp: datetime | None
+    total_balance_quote: float | None = None
+    unrealized_pnl: float | None = None
 
 
 class PnLPointResponse(BaseModel):
@@ -43,6 +45,31 @@ class PnLPointResponse(BaseModel):
     total_fees: float
     num_open_positions: int
     drawdown_pct: float
+
+
+class ClosedTradeResponse(BaseModel):
+    symbol: str
+    strategy_name: str
+    entry_price: float
+    exit_price: float
+    amount: float
+    pnl: float
+    pnl_pct: float
+    fee: float
+    opened_at: datetime
+    closed_at: datetime
+    hold_duration_hours: float
+
+
+class TradeStatsResponse(BaseModel):
+    total_trades: int
+    winning_trades: int
+    losing_trades: int
+    win_rate: float
+    avg_pnl: float
+    total_pnl: float
+    profit_factor: float
+    avg_hold_hours: float
 
 
 # ---------------------------------------------------------------------------
